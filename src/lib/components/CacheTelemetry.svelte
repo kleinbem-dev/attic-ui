@@ -78,6 +78,24 @@
 			</div>
 		</div>
 
+		<div class="flex items-center gap-2 text-[11px] text-text-muted">
+			<span>Presets:</span>
+			<button
+				type="button"
+				onclick={() => { endpoint = 'https://cache.kleinbem.dev'; cacheName = 'system'; }}
+				class="rounded px-2 py-0.5 border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 transition-colors font-mono cursor-pointer"
+			>
+				cache.kleinbem.dev
+			</button>
+			<button
+				type="button"
+				onclick={() => { endpoint = 'https://cache.nixos.org'; cacheName = ''; }}
+				class="rounded px-2 py-0.5 border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 transition-colors font-mono cursor-pointer"
+			>
+				cache.nixos.org
+			</button>
+		</div>
+
 		<div>
 			<div class="flex items-center justify-between mb-1">
 				<label for="token-input" class="block text-xs font-medium text-text-secondary">

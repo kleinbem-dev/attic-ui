@@ -58,9 +58,30 @@ export function extractStoreHash(input: string): string {
 }
 
 /**
+ * Resolves the effective base URL, routing through local Vite proxy on localhost
+ * to bypass CORS when connecting to cache.kleinbem.dev.
+ */
+export function resolveEndpoint(endpoint: string): string {
+	const clean = endpoint.trim().replace(/\/+$/, '');
+	if (
+		typeof window !== 'undefined' &&
+		(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+	) {
+		if (clean.includes('cache.kleinbem.dev')) {
+			return '/proxy-cache';
+		}
+	}
+	return clean;
+}
+
+/**
  * Tests connectivity and queries cache info.
  */
-export async function queryCacheInfo(endpoint: string, cacheName: string, token?: string): Promise<{
+export async function queryCacheInfo(
+	endpoint: string,
+	cacheName: string,
+	token?: string
+): Promise<{
 	ok: boolean;
 	status: number;
 	latencyMs: number;
@@ -68,8 +89,9 @@ export async function queryCacheInfo(endpoint: string, cacheName: string, token?
 	error?: string;
 }> {
 	const start = performance.now();
-	const base = endpoint.replace(/\/+$/, '');
-	const url = `${base}/${cacheName}/nix-cache-info`;
+	const base = resolveEndpoint(endpoint);
+	const isNixOSPublic = endpoint.includes('cache.nixos.org');
+	const url = isNixOSPublic ? `${base}/nix-cache-info` : `${base}/${cacheName}/nix-cache-info`;
 
 	try {
 		const headers: HeadersInit = {};
@@ -108,27 +130,43 @@ export async function queryCacheInfo(endpoint: string, cacheName: string, token?
 		};
 	} catch (err: unknown) {
 		const latencyMs = Math.round(performance.now() - start);
+		const isCors =
+			typeof window !== 'undefined' &&
+			err instanceof TypeError &&
+			err.message.toLowerCase().includes('fetch');
+		const errorMsg = isCors
+			? 'CORS blocked by browser. When connecting from localhost, use the local proxy or test against a CORS-enabled cache.'
+			: err instanceof Error
+				? err.message
+				: 'Network error';
 		return {
 			ok: false,
 			status: 0,
 			latencyMs,
-			error: err instanceof Error ? err.message : 'Network error'
+			error: errorMsg
 		};
 	}
 }
 
 /**
- * Fetches and parses .narinfo for a given hash from Attic.
+ * Fetches and parses .narinfo for a given hash from Attic or public binary cache.
  */
 export async function fetchNarInfo(
 	endpoint: string,
 	cacheName: string,
 	hash: string,
 	token?: string
-): Promise<{ ok: boolean; data?: NarInfo; error?: string }> {
-	const base = endpoint.replace(/\/+$/, '');
+): Promise<{ ok: boolean; status: number; data?: NarInfo; error?: string }> {
 	const cleanHash = extractStoreHash(hash);
-	const url = `${base}/${cacheName}/${cleanHash}.narinfo`;
+	if (!cleanHash) {
+		return { ok: false, status: 400, error: 'Invalid store path or hash' };
+	}
+
+	const base = resolveEndpoint(endpoint);
+	const isNixOSPublic = endpoint.includes('cache.nixos.org');
+	const url = isNixOSPublic
+		? `${base}/${cleanHash}.narinfo`
+		: `${base}/${cacheName}/${cleanHash}.narinfo`;
 
 	try {
 		const headers: HeadersInit = {};
@@ -142,18 +180,27 @@ export async function fetchNarInfo(
 		});
 
 		if (res.status === 404) {
-			return { ok: false, error: 'Path not found in cache' };
+			return { ok: false, status: 404, error: 'Path not found in cache' };
 		}
 		if (res.status === 401) {
-			return { ok: false, error: 'Unauthorized: Token required to view this path' };
+			return { ok: false, status: 401, error: 'Unauthorized: Token required to view this path' };
 		}
 		if (!res.ok) {
-			return { ok: false, error: `Server returned HTTP ${res.status}` };
+			return { ok: false, status: res.status, error: `Server returned HTTP ${res.status}` };
 		}
 
 		const text = await res.text();
-		return { ok: true, data: parseNarInfo(text) };
+		return { ok: true, status: 200, data: parseNarInfo(text) };
 	} catch (err: unknown) {
-		return { ok: false, error: err instanceof Error ? err.message : 'Failed to fetch .narinfo' };
+		const isCors =
+			typeof window !== 'undefined' &&
+			err instanceof TypeError &&
+			err.message.toLowerCase().includes('fetch');
+		const errorMsg = isCors
+			? 'CORS blocked by browser. When testing locally, use the local proxy.'
+			: err instanceof Error
+				? err.message
+				: 'Failed to fetch .narinfo';
+		return { ok: false, status: 0, error: errorMsg };
 	}
 }

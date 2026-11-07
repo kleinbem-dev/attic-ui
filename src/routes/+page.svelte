@@ -26,7 +26,7 @@
 			status = 'healthy';
 		} else if (res.status === 401) {
 			status = 'degraded';
-			errorMessage = 'Unauthorized: Token required to pull from this cache.';
+			errorMessage = 'Reachable: Authentication token required for private cache.';
 		} else {
 			status = 'down';
 			errorMessage = res.error || `HTTP ${res.status}`;
@@ -37,7 +37,15 @@
 		isInspecting = true;
 		inspectorError = '';
 		try {
-			const res = await fetchNarInfo(endpoint, cacheName, hashOrPath, token);
+			let res = await fetchNarInfo(endpoint, cacheName, hashOrPath, token);
+			// Attic skips caching upstream paths that exist on cache.nixos.org; fallback to upstream public cache
+			if (!res.ok && res.status === 404 && endpoint.includes('cache.kleinbem.dev')) {
+				const fallback = await fetchNarInfo('https://cache.nixos.org', '', hashOrPath);
+				if (fallback.ok && fallback.data) {
+					res = fallback;
+				}
+			}
+
 			if (res.ok && res.data) {
 				activeNarInfo = res.data;
 			} else {
