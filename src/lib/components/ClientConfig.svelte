@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { isPublicNixCache } from '../attic-api';
+
 	let {
 		endpoint = 'https://cache.kleinbem.dev',
 		cacheName = 'system'
@@ -11,7 +13,7 @@
 	let copied = $state(false);
 
 	const cleanEndpoint = $derived(endpoint.replace(/\/+$/, ''));
-	const isPublicNix = $derived(cleanEndpoint.includes('cache.nixos.org'));
+	const isPublicNix = $derived(isPublicNixCache(cleanEndpoint));
 	const cacheUrl = $derived(isPublicNix ? cleanEndpoint : `${cleanEndpoint}/${cacheName}`);
 
 	const nixosSnippet = $derived(

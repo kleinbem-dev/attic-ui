@@ -58,6 +58,18 @@ export function extractStoreHash(input: string): string {
 }
 
 /**
+ * Shared classifier to test if an endpoint targets the official public NixOS cache.
+ */
+export function isPublicNixCache(endpoint: string): boolean {
+	try {
+		const parsed = new URL(endpoint.trim());
+		return parsed.hostname === 'cache.nixos.org';
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Resolves the effective base URL, routing through local Vite proxy on localhost
  * to bypass CORS when connecting to cache.kleinbem.dev.
  */
@@ -70,7 +82,8 @@ export function resolveEndpoint(endpoint: string): string {
 		try {
 			const parsed = new URL(clean);
 			if (parsed.hostname === 'cache.kleinbem.dev') {
-				return '/proxy-cache';
+				const prefix = parsed.pathname.replace(/\/+$/, '');
+				return `/proxy-cache${prefix}`;
 			}
 		} catch {}
 	}
@@ -93,7 +106,7 @@ export async function queryCacheInfo(
 }> {
 	const start = performance.now();
 	const base = resolveEndpoint(endpoint);
-	const isNixOSPublic = endpoint.includes('cache.nixos.org');
+	const isNixOSPublic = isPublicNixCache(endpoint);
 	const url = isNixOSPublic ? `${base}/nix-cache-info` : `${base}/${cacheName}/nix-cache-info`;
 
 	try {
@@ -166,7 +179,7 @@ export async function fetchNarInfo(
 	}
 
 	const base = resolveEndpoint(endpoint);
-	const isNixOSPublic = endpoint.includes('cache.nixos.org');
+	const isNixOSPublic = isPublicNixCache(endpoint);
 	const url = isNixOSPublic
 		? `${base}/${cleanHash}.narinfo`
 		: `${base}/${cacheName}/${cleanHash}.narinfo`;
