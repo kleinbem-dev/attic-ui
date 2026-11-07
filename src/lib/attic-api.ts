@@ -67,9 +67,12 @@ export function resolveEndpoint(endpoint: string): string {
 		typeof window !== 'undefined' &&
 		(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
 	) {
-		if (clean.includes('cache.kleinbem.dev')) {
-			return '/proxy-cache';
-		}
+		try {
+			const parsed = new URL(clean);
+			if (parsed.hostname === 'cache.kleinbem.dev') {
+				return '/proxy-cache';
+			}
+		} catch {}
 	}
 	return clean;
 }

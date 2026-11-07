@@ -38,6 +38,7 @@
 		isInspecting = true;
 		inspectorError = '';
 		inspectionSource = '';
+		activeNarInfo = null;
 		try {
 			let res = await fetchNarInfo(endpoint, cacheName, hashOrPath, token);
 			let source = endpoint;
