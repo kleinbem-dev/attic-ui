@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { isPublicNixCache } from '../attic-api';
+
 	let {
 		endpoint = 'https://cache.kleinbem.dev',
 		cacheName = 'system'
@@ -11,9 +13,20 @@
 	let copied = $state(false);
 
 	const cleanEndpoint = $derived(endpoint.replace(/\/+$/, ''));
-	const cacheUrl = $derived(`${cleanEndpoint}/${cacheName}`);
+	const isPublicNix = $derived(isPublicNixCache(cleanEndpoint));
+	const cacheUrl = $derived(isPublicNix ? cleanEndpoint : `${cleanEndpoint}/${cacheName}`);
 
-	const nixosSnippet = $derived(`nix.settings = {
+	const nixosSnippet = $derived(
+		isPublicNix
+			? `nix.settings = {
+  substituters = [
+    "https://cache.nixos.org"
+  ];
+  trusted-public-keys = [
+    "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+  ];
+};`
+			: `nix.settings = {
   substituters = [
     "https://cache.nixos.org",
     "${cacheUrl}"
@@ -23,12 +36,22 @@
     # Replace with your Attic cache public key from: attic cache info ${cacheName}
     "${cacheName}:<your-attic-public-key>"
   ];
-};`);
+};`
+	);
 
-	const nixConfSnippet = $derived(`substituters = https://cache.nixos.org ${cacheUrl}
-trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= ${cacheName}:<your-attic-public-key>`);
+	const nixConfSnippet = $derived(
+		isPublicNix
+			? `substituters = https://cache.nixos.org
+trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=`
+			: `substituters = https://cache.nixos.org ${cacheUrl}
+trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= ${cacheName}:<your-attic-public-key>`
+	);
 
-	const cliSnippet = $derived(`# 1. Log in to the Attic server
+	const cliSnippet = $derived(
+		isPublicNix
+			? `# Query public NixOS cache directly via Nix CLI:
+nix path-info --store https://cache.nixos.org /nix/store/...`
+			: `# 1. Log in to the Attic server
 attic login kleinbem ${cleanEndpoint} <your-token>
 
 # 2. Query cache details
@@ -38,7 +61,8 @@ attic cache info ${cacheName}
 attic push ${cacheName} /nix/store/...
 
 # 4. Watch build outputs and push automatically (post-build-hook)
-nix-build --post-build-hook /run/current-system/sw/bin/attic-post-build-hook`);
+nix-build --post-build-hook /run/current-system/sw/bin/attic-post-build-hook`
+	);
 
 	const currentCode = $derived(
 		activeConfig === 'nixos' ? nixosSnippet : activeConfig === 'nixconf' ? nixConfSnippet : cliSnippet

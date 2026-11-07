@@ -16,6 +16,7 @@
 	let activeNarInfo = $state<NarInfo | null>(null);
 	let isInspecting = $state(false);
 	let inspectorError = $state('');
+	let inspectionSource = $state('');
 
 	async function testConnection() {
 		errorMessage = '';
@@ -26,7 +27,7 @@
 			status = 'healthy';
 		} else if (res.status === 401) {
 			status = 'degraded';
-			errorMessage = 'Unauthorized: Token required to pull from this cache.';
+			errorMessage = 'Reachable: Authentication token required for private cache.';
 		} else {
 			status = 'down';
 			errorMessage = res.error || `HTTP ${res.status}`;
@@ -36,10 +37,34 @@
 	async function inspectPath(hashOrPath: string) {
 		isInspecting = true;
 		inspectorError = '';
+		inspectionSource = '';
+		activeNarInfo = null;
+		const targetEndpoint = endpoint;
+		const targetCache = cacheName;
+		const targetToken = token;
+
 		try {
-			const res = await fetchNarInfo(endpoint, cacheName, hashOrPath, token);
+			let res = await fetchNarInfo(targetEndpoint, targetCache, hashOrPath, targetToken);
+			let source = targetEndpoint;
+			// no-link: Attic skips caching upstream paths signed by public cache keys (upstreamCacheKeyNames).
+			const isKleinbemCache = (() => {
+				try {
+					return new URL(targetEndpoint).hostname === 'cache.kleinbem.dev';
+				} catch {
+					return false;
+				}
+			})();
+			if (!res.ok && res.status === 404 && isKleinbemCache) {
+				const fallback = await fetchNarInfo('https://cache.nixos.org', '', hashOrPath);
+				if (fallback.ok && fallback.data) {
+					res = fallback;
+					source = 'cache.nixos.org (upstream public)';
+				}
+			}
+
 			if (res.ok && res.data) {
 				activeNarInfo = res.data;
+				inspectionSource = source;
 			} else {
 				inspectorError = res.error || 'Failed to inspect path';
 			}
@@ -117,6 +142,7 @@
 		narInfo={activeNarInfo}
 		isLoading={isInspecting}
 		error={inspectorError}
+		source={inspectionSource}
 		onSearch={inspectPath}
 	/>
 

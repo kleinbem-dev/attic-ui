@@ -6,11 +6,13 @@
 		narInfo = null,
 		isLoading = false,
 		error = '',
+		source = '',
 		onSearch
 	}: {
 		narInfo?: NarInfo | null;
 		isLoading?: boolean;
 		error?: string;
+		source?: string;
 		onSearch: (hashOrPath: string) => void;
 	} = $props();
 
@@ -18,6 +20,26 @@
 	let activeTab = $state<'parsed' | 'raw'>('parsed');
 	let copiedPath = $state(false);
 	let copiedRaw = $state(false);
+
+	const samplePackages = [
+		{
+			name: 'jq-1.8.2',
+			hash: '9l0j15jg8634hkb6d4c9y95mpxl0nhrd'
+		},
+		{
+			name: 'curl-8.22.0',
+			hash: '5lpg7j8y8lf8c4zv318yi4rmgyn5yhip'
+		},
+		{
+			name: 'glibc-2.44',
+			hash: 'pqyiidz5mi73wv5f91d48s9plcqyj5bz'
+		}
+	];
+
+	function selectSample(hash: string) {
+		inputVal = hash;
+		onSearch(hash);
+	}
 
 	function handleSubmit(e: SubmitEvent) {
 		e.preventDefault();
@@ -89,6 +111,21 @@
 		</button>
 	</form>
 
+	<!-- Sample Chips -->
+	<div class="flex flex-wrap items-center gap-2 text-xs">
+		<span class="text-text-muted">Sample closures:</span>
+		{#each samplePackages as sample}
+			<button
+				type="button"
+				disabled={isLoading}
+				onclick={() => selectSample(sample.hash)}
+				class="rounded-md border border-border-subtle bg-bg-surface px-2.5 py-1 text-[11px] font-mono text-text-secondary hover:text-brand hover:border-brand/40 disabled:opacity-50 transition-colors cursor-pointer"
+			>
+				{sample.name}
+			</button>
+		{/each}
+	</div>
+
 	<!-- Error Message Display -->
 	{#if error}
 		<div class="rounded-lg bg-status-critical/10 border border-status-critical/20 p-3 text-xs text-status-critical flex items-center justify-between">
@@ -119,6 +156,11 @@
 					>
 						Raw .narinfo
 					</button>
+					{#if source}
+						<span class="rounded bg-brand/10 border border-brand/20 px-2 py-0.5 text-[10px] font-mono text-brand font-medium">
+							{source}
+						</span>
+					{/if}
 				</div>
 				<button
 					type="button"
@@ -242,12 +284,25 @@
 			{/if}
 		</div>
 	{:else if !isLoading}
-		<div class="rounded-xl border border-dashed border-border-subtle p-8 text-center text-xs text-text-muted space-y-2">
+		<div class="rounded-xl border border-dashed border-border-subtle p-8 text-center text-xs text-text-muted space-y-3">
 			<div class="text-2xl">📦</div>
 			<div class="font-medium text-text-primary">No path selected</div>
 			<p class="max-w-md mx-auto text-text-muted">
 				Enter a Nix store path or hash above to query Attic's binary cache and inspect its closure metadata, references, and compression.
 			</p>
+			<div class="pt-2 flex flex-wrap justify-center items-center gap-2">
+				<span class="text-text-muted">Or try a sample package:</span>
+				{#each samplePackages as sample}
+					<button
+						type="button"
+						disabled={isLoading}
+						onclick={() => selectSample(sample.hash)}
+						class="rounded-lg border border-border-subtle bg-bg-surface px-3 py-1.5 text-xs font-mono text-text-secondary hover:text-brand hover:border-brand/50 disabled:opacity-50 transition-colors cursor-pointer"
+					>
+						⚡ {sample.name}
+					</button>
+				{/each}
+			</div>
 		</div>
 	{/if}
 </div>
