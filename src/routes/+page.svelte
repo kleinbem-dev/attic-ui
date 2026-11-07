@@ -46,8 +46,15 @@
 		try {
 			let res = await fetchNarInfo(targetEndpoint, targetCache, hashOrPath, targetToken);
 			let source = targetEndpoint;
-			// Attic skips caching upstream paths that exist on cache.nixos.org; fallback to upstream public cache
-			if (!res.ok && res.status === 404 && targetEndpoint.includes('cache.kleinbem.dev')) {
+			// no-link: Attic skips caching upstream paths signed by public cache keys (upstreamCacheKeyNames).
+			const isKleinbemCache = (() => {
+				try {
+					return new URL(targetEndpoint).hostname === 'cache.kleinbem.dev';
+				} catch {
+					return false;
+				}
+			})();
+			if (!res.ok && res.status === 404 && isKleinbemCache) {
 				const fallback = await fetchNarInfo('https://cache.nixos.org', '', hashOrPath);
 				if (fallback.ok && fallback.data) {
 					res = fallback;
