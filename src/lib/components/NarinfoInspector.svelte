@@ -6,11 +6,13 @@
 		narInfo = null,
 		isLoading = false,
 		error = '',
+		source = '',
 		onSearch
 	}: {
 		narInfo?: NarInfo | null;
 		isLoading?: boolean;
 		error?: string;
+		source?: string;
 		onSearch: (hashOrPath: string) => void;
 	} = $props();
 
@@ -115,8 +117,9 @@
 		{#each samplePackages as sample}
 			<button
 				type="button"
+				disabled={isLoading}
 				onclick={() => selectSample(sample.hash)}
-				class="rounded-md border border-border-subtle bg-bg-surface px-2.5 py-1 text-[11px] font-mono text-text-secondary hover:text-brand hover:border-brand/40 transition-colors cursor-pointer"
+				class="rounded-md border border-border-subtle bg-bg-surface px-2.5 py-1 text-[11px] font-mono text-text-secondary hover:text-brand hover:border-brand/40 disabled:opacity-50 transition-colors cursor-pointer"
 			>
 				{sample.name}
 			</button>
@@ -153,6 +156,11 @@
 					>
 						Raw .narinfo
 					</button>
+					{#if source}
+						<span class="rounded bg-brand/10 border border-brand/20 px-2 py-0.5 text-[10px] font-mono text-brand font-medium">
+							{source}
+						</span>
+					{/if}
 				</div>
 				<button
 					type="button"
@@ -287,8 +295,9 @@
 				{#each samplePackages as sample}
 					<button
 						type="button"
+						disabled={isLoading}
 						onclick={() => selectSample(sample.hash)}
-						class="rounded-lg border border-border-subtle bg-bg-surface px-3 py-1.5 text-xs font-mono text-text-secondary hover:text-brand hover:border-brand/50 transition-colors cursor-pointer"
+						class="rounded-lg border border-border-subtle bg-bg-surface px-3 py-1.5 text-xs font-mono text-text-secondary hover:text-brand hover:border-brand/50 disabled:opacity-50 transition-colors cursor-pointer"
 					>
 						⚡ {sample.name}
 					</button>

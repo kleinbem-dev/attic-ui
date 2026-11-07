@@ -16,6 +16,7 @@
 	let activeNarInfo = $state<NarInfo | null>(null);
 	let isInspecting = $state(false);
 	let inspectorError = $state('');
+	let inspectionSource = $state('');
 
 	async function testConnection() {
 		errorMessage = '';
@@ -36,18 +37,22 @@
 	async function inspectPath(hashOrPath: string) {
 		isInspecting = true;
 		inspectorError = '';
+		inspectionSource = '';
 		try {
 			let res = await fetchNarInfo(endpoint, cacheName, hashOrPath, token);
+			let source = endpoint;
 			// Attic skips caching upstream paths that exist on cache.nixos.org; fallback to upstream public cache
 			if (!res.ok && res.status === 404 && endpoint.includes('cache.kleinbem.dev')) {
 				const fallback = await fetchNarInfo('https://cache.nixos.org', '', hashOrPath);
 				if (fallback.ok && fallback.data) {
 					res = fallback;
+					source = 'cache.nixos.org (upstream public)';
 				}
 			}
 
 			if (res.ok && res.data) {
 				activeNarInfo = res.data;
+				inspectionSource = source;
 			} else {
 				inspectorError = res.error || 'Failed to inspect path';
 			}
@@ -125,6 +130,7 @@
 		narInfo={activeNarInfo}
 		isLoading={isInspecting}
 		error={inspectorError}
+		source={inspectionSource}
 		onSearch={inspectPath}
 	/>
 

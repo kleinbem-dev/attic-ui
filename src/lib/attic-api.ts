@@ -95,7 +95,7 @@ export async function queryCacheInfo(
 
 	try {
 		const headers: HeadersInit = {};
-		if (token) {
+		if (token && !isNixOSPublic) {
 			headers['Authorization'] = `Bearer ${token.trim()}`;
 		}
 
@@ -135,7 +135,7 @@ export async function queryCacheInfo(
 			err instanceof TypeError &&
 			err.message.toLowerCase().includes('fetch');
 		const errorMsg = isCors
-			? 'CORS blocked by browser. When connecting from localhost, use the local proxy or test against a CORS-enabled cache.'
+			? 'Network or CORS error. Verify cache reachability, or check browser CORS restrictions.'
 			: err instanceof Error
 				? err.message
 				: 'Network error';
@@ -170,7 +170,7 @@ export async function fetchNarInfo(
 
 	try {
 		const headers: HeadersInit = {};
-		if (token) {
+		if (token && !isNixOSPublic) {
 			headers['Authorization'] = `Bearer ${token.trim()}`;
 		}
 
@@ -197,7 +197,7 @@ export async function fetchNarInfo(
 			err instanceof TypeError &&
 			err.message.toLowerCase().includes('fetch');
 		const errorMsg = isCors
-			? 'CORS blocked by browser. When testing locally, use the local proxy.'
+			? 'Network or CORS error fetching .narinfo. Verify endpoint reachability and permissions.'
 			: err instanceof Error
 				? err.message
 				: 'Failed to fetch .narinfo';

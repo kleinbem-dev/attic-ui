@@ -11,7 +11,6 @@ export default defineConfig({
 			'/proxy-cache': {
 				target: 'https://cache.kleinbem.dev',
 				changeOrigin: true,
-				secure: false,
 				rewrite: (path) => path.replace(/^\/proxy-cache/, '')
 			}
 		}
@@ -23,7 +22,6 @@ export default defineConfig({
 			'/proxy-cache': {
 				target: 'https://cache.kleinbem.dev',
 				changeOrigin: true,
-				secure: false,
 				rewrite: (path) => path.replace(/^\/proxy-cache/, '')
 			}
 		}
