@@ -114,6 +114,7 @@
 			mounted = true;
 			return;
 		}
+		testRun++; // drop results of tests started for the old settings
 		status = 'unknown';
 		latencyMs = null;
 		const timer = setTimeout(testConnection, 600);
