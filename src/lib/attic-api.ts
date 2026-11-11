@@ -75,16 +75,23 @@ export function isPublicNixCache(endpoint: string): boolean {
  * since the endpoint is free text and plain http would leak it.
  */
 function authHeaders(endpoint: string, token?: string): HeadersInit {
-	if (!token || isPublicNixCache(endpoint)) return {};
+	if (!token || isPublicNixCache(endpoint) || tokenWithheld(endpoint, token)) return {};
+	return { Authorization: `Bearer ${token.trim()}` };
+}
+
+/** True when a token is set but would travel over plain HTTP to a non-loopback host. */
+export function tokenWithheld(endpoint: string, token?: string): boolean {
+	if (!token || isPublicNixCache(endpoint)) return false;
 	try {
 		const { protocol, hostname } = new URL(endpoint.trim());
 		const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
-		if (protocol !== 'https:' && !loopback) return {};
+		return protocol !== 'https:' && !loopback;
 	} catch {
-		return {};
+		return true;
 	}
-	return { Authorization: `Bearer ${token.trim()}` };
 }
+
+const WITHHELD_MSG = 'Token not sent over plain HTTP: use an https:// endpoint';
 
 /**
  * Resolves the effective base URL, routing through local Vite proxy on localhost
@@ -158,7 +165,12 @@ export async function queryCacheInfo(
 			ok: false,
 			status: res.status,
 			latencyMs,
-			error: res.status === 401 ? 'Unauthorized (token required)' : `HTTP ${res.status}`
+			error:
+				res.status === 401
+					? tokenWithheld(endpoint, token)
+						? WITHHELD_MSG
+						: 'Unauthorized (token required)'
+					: `HTTP ${res.status}`
 		};
 	} catch (err: unknown) {
 		const latencyMs = Math.round(performance.now() - start);
@@ -212,7 +224,13 @@ export async function fetchNarInfo(
 			return { ok: false, status: 404, error: 'Path not found in cache' };
 		}
 		if (res.status === 401) {
-			return { ok: false, status: 401, error: 'Unauthorized: Token required to view this path' };
+			return {
+				ok: false,
+				status: 401,
+				error: tokenWithheld(endpoint, token)
+					? WITHHELD_MSG
+					: 'Unauthorized: Token required to view this path'
+			};
 		}
 		if (!res.ok) {
 			return { ok: false, status: res.status, error: `Server returned HTTP ${res.status}` };

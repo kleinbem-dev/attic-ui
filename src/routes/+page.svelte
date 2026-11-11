@@ -4,7 +4,7 @@
 	import CacheTelemetry from '#lib/components/CacheTelemetry.svelte';
 	import NarinfoInspector from '#lib/components/NarinfoInspector.svelte';
 	import ClientConfig from '#lib/components/ClientConfig.svelte';
-	import { queryCacheInfo, fetchNarInfo } from '#lib/attic-api';
+	import { queryCacheInfo, fetchNarInfo, tokenWithheld } from '#lib/attic-api';
 	import type { NarInfo, CacheStatus } from '#lib/types';
 
 	let endpoint = $state('https://cache.kleinbem.dev');
@@ -19,16 +19,24 @@
 	let inspectorError = $state('');
 	let inspectionSource = $state('');
 
+	// Bumped per test so results of tests for older settings are dropped.
+	let testRun = 0;
+
 	async function testConnection() {
+		const run = ++testRun;
 		errorMessage = '';
+		status = 'checking';
 		const res = await queryCacheInfo(endpoint, cacheName, token);
+		if (run !== testRun) return;
 		latencyMs = res.latencyMs;
 
 		if (res.ok) {
 			status = 'healthy';
 		} else if (res.status === 401) {
 			status = 'degraded';
-			errorMessage = 'Reachable: Authentication token required for private cache.';
+			errorMessage = tokenWithheld(endpoint, token)
+				? `Reachable: ${res.error}`
+				: 'Reachable: Authentication token required for private cache.';
 		} else {
 			status = 'down';
 			errorMessage = res.error || `HTTP ${res.status}`;
@@ -94,6 +102,22 @@
 		return () => {
 			window.removeEventListener('attic:test-connection', listener);
 		};
+	});
+
+	// Retest shortly after the connection settings change, so the status never describes old ones.
+	let mounted = false;
+	$effect(() => {
+		endpoint;
+		cacheName;
+		token;
+		if (!mounted) {
+			mounted = true;
+			return;
+		}
+		status = 'unknown';
+		latencyMs = null;
+		const timer = setTimeout(testConnection, 600);
+		return () => clearTimeout(timer);
 	});
 
 	$effect(() => {
