@@ -1,5 +1,6 @@
 <script lang="ts">
 	import StatusDot from '@kleinbem/web-config/components/StatusDot';
+	import { theme } from '@kleinbem/web-config/theme/state';
 	import type { CacheStatus } from '#lib/types';
 
 	let {
@@ -12,27 +13,12 @@
 		onOpenCommandPalette?: () => void;
 	} = $props();
 
-	let currentTheme = $state('system');
+	const currentTheme = $derived(theme.preference);
 
 	function toggleTheme() {
-		const themes = ['dark', 'light', 'system'];
-		const next = themes[(themes.indexOf(currentTheme) + 1) % themes.length];
-		currentTheme = next;
-		localStorage.setItem('fleet-theme', next);
-
-		const isDark =
-			next === 'dark' || (next === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-		document.documentElement.dataset.theme = next;
-		document.documentElement.classList.toggle('dark', isDark);
-		document.documentElement.classList.toggle('light', !isDark);
+		const themes = ['dark', 'light', 'system'] as const;
+		theme.set(themes[(themes.indexOf(currentTheme) + 1) % themes.length]);
 	}
-
-	$effect(() => {
-		try {
-			const saved = localStorage.getItem('fleet-theme');
-			if (saved) currentTheme = saved;
-		} catch (e) {}
-	});
 </script>
 
 <header class="sticky top-0 z-30 border-b border-border-subtle bg-bg-surface/80 backdrop-blur-md">
