@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: kleinbem/actions/nix-setup@f1b4f5fc52ea31b1f9e53ca29170570fe4651c7d # v1.7.1
+      - name: Flake check
+        run: nix flake check
+      - name: Svelte check
+        run: |
+          nix develop --command npm ci
+          nix develop --command npm run check
+      - name: Build web
+        run: nix build .#default

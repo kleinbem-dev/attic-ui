@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📦</text></svg>" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="dark light" />
+		<title>Attic UI — Nix Binary Cache</title>
+		<script>
+			try {
+				const p = localStorage.getItem('fleet-theme');
+				const m = window.matchMedia('(prefers-color-scheme: dark)').matches;
+				const t = (!p || p === 'system') ? (m ? 'dark' : 'light') : p;
+				document.documentElement.dataset.theme = t;
+				document.documentElement.classList.toggle('dark', t === 'dark');
+				document.documentElement.classList.toggle('light', t === 'light');
+
+				const s = localStorage.getItem('fleet-font-size');
+				if (s && s !== 'normal') {
+					document.documentElement.dataset.fontSize = s;
+					document.documentElement.classList.add('font-size-' + s);
+				}
+			} catch (e) {}
+		</script>
+		%sveltekit.head%
+	</head>
+	<body class="min-h-screen bg-bg-surface text-text-primary antialiased transition-colors selection:bg-brand/20" data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
