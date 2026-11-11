@@ -49,12 +49,13 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * Extracts the 32-character Nix hash from a full /nix/store path or returns clean hash.
+ * Extracts the 32-character Nix hash from a full /nix/store path or a bare hash.
+ * Returns '' when the input contains neither.
  */
 export function extractStoreHash(input: string): string {
 	const trimmed = input.trim();
 	const match = trimmed.match(/\/nix\/store\/([0-9a-df-np-sv-z]{32})/i) || trimmed.match(/^([0-9a-df-np-sv-z]{32})/i);
-	return match ? match[1] : trimmed;
+	return match ? match[1] : '';
 }
 
 /**
@@ -67,6 +68,22 @@ export function isPublicNixCache(endpoint: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Builds request headers; the bearer token only goes over HTTPS or to loopback,
+ * since the endpoint is free text and plain http would leak it.
+ */
+function authHeaders(endpoint: string, token?: string): HeadersInit {
+	if (!token || isPublicNixCache(endpoint)) return {};
+	try {
+		const { protocol, hostname } = new URL(endpoint.trim());
+		const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+		if (protocol !== 'https:' && !loopback) return {};
+	} catch {
+		return {};
+	}
+	return { Authorization: `Bearer ${token.trim()}` };
 }
 
 /**
@@ -107,13 +124,12 @@ export async function queryCacheInfo(
 	const start = performance.now();
 	const base = resolveEndpoint(endpoint);
 	const isNixOSPublic = isPublicNixCache(endpoint);
-	const url = isNixOSPublic ? `${base}/nix-cache-info` : `${base}/${cacheName}/nix-cache-info`;
+	const url = isNixOSPublic
+		? `${base}/nix-cache-info`
+		: `${base}/${encodeURIComponent(cacheName)}/nix-cache-info`;
 
 	try {
-		const headers: HeadersInit = {};
-		if (token && !isNixOSPublic) {
-			headers['Authorization'] = `Bearer ${token.trim()}`;
-		}
+		const headers = authHeaders(endpoint, token);
 
 		const res = await fetch(url, {
 			headers,
@@ -182,13 +198,10 @@ export async function fetchNarInfo(
 	const isNixOSPublic = isPublicNixCache(endpoint);
 	const url = isNixOSPublic
 		? `${base}/${cleanHash}.narinfo`
-		: `${base}/${cacheName}/${cleanHash}.narinfo`;
+		: `${base}/${encodeURIComponent(cacheName)}/${cleanHash}.narinfo`;
 
 	try {
-		const headers: HeadersInit = {};
-		if (token && !isNixOSPublic) {
-			headers['Authorization'] = `Bearer ${token.trim()}`;
-		}
+		const headers = authHeaders(endpoint, token);
 
 		const res = await fetch(url, {
 			headers,

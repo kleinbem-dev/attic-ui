@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Header from '#lib/components/Header.svelte';
 	import CacheTelemetry from '#lib/components/CacheTelemetry.svelte';
 	import NarinfoInspector from '#lib/components/NarinfoInspector.svelte';
@@ -75,7 +76,7 @@
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		try {
 			const savedEndpoint = localStorage.getItem('attic-endpoint');
 			const savedCache = localStorage.getItem('attic-cache');
@@ -86,7 +87,6 @@
 			if (savedToken) token = savedToken;
 		} catch (e) {}
 
-		// Run an initial connectivity check
 		testConnection();
 
 		const listener = () => testConnection();
