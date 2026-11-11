@@ -2,6 +2,7 @@
 	import '../app.css';
 	import CommandPalette from '@kleinbem/web-config/components/CommandPalette';
 	import type { CommandItem } from '@kleinbem/web-config/components/CommandPalette';
+	import { theme } from '@kleinbem/web-config/theme/state';
 
 	let { children } = $props();
 	let commandPaletteOpen = $state(false);
@@ -50,45 +51,51 @@
 			title: 'Switch to Dark Theme',
 			category: 'Preferences',
 			icon: '🌙',
-			onSelect: () => {
-				localStorage.setItem('fleet-theme', 'dark');
-				document.documentElement.dataset.theme = 'dark';
-				document.documentElement.classList.add('dark');
-				document.documentElement.classList.remove('light');
-			}
+			onSelect: () => theme.set('dark')
 		},
 		{
 			id: 'theme-light',
 			title: 'Switch to Light Theme',
 			category: 'Preferences',
 			icon: '☀️',
-			onSelect: () => {
-				localStorage.setItem('fleet-theme', 'light');
-				document.documentElement.dataset.theme = 'light';
-				document.documentElement.classList.add('light');
-				document.documentElement.classList.remove('dark');
-			}
+			onSelect: () => theme.set('light')
 		},
 		{
 			id: 'theme-system',
 			title: 'Follow System Theme',
 			category: 'Preferences',
 			icon: '🖥️',
-			onSelect: () => {
-				localStorage.setItem('fleet-theme', 'system');
-				const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-				document.documentElement.dataset.theme = 'system';
-				document.documentElement.classList.toggle('dark', isDark);
-				document.documentElement.classList.toggle('light', !isDark);
-			}
+			onSelect: () => theme.set('system')
 		}
 	];
+
+	// One place applies the theme, so the header toggle and the palette stay in sync.
+	$effect(() => {
+		const active = theme.current;
+		document.documentElement.dataset.theme = active;
+		document.documentElement.classList.toggle('dark', active === 'dark');
+		document.documentElement.classList.toggle('light', active === 'light');
+	});
+
+	function isEditable(target: EventTarget | null): boolean {
+		return (
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement ||
+			target instanceof HTMLSelectElement ||
+			(target instanceof HTMLElement && target.isContentEditable)
+		);
+	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
 			e.preventDefault();
 			commandPaletteOpen = !commandPaletteOpen;
-		} else if (e.key === '/' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+		} else if (
+			e.key === '/' &&
+			!commandPaletteOpen &&
+			!(e.metaKey || e.ctrlKey || e.altKey) &&
+			!isEditable(e.target)
+		) {
 			e.preventDefault();
 			commandPaletteOpen = true;
 		}

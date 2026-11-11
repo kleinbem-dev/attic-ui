@@ -3,28 +3,25 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
+// Dev and preview both proxy the cache to sidestep CORS on localhost.
+const proxy = {
+	'/proxy-cache': {
+		target: 'https://cache.kleinbem.dev',
+		changeOrigin: true,
+		rewrite: (path: string) => path.replace(/^\/proxy-cache/, '')
+	}
+};
+
 export default defineConfig({
 	server: {
 		port: 4173,
 		host: true,
-		proxy: {
-			'/proxy-cache': {
-				target: 'https://cache.kleinbem.dev',
-				changeOrigin: true,
-				rewrite: (path) => path.replace(/^\/proxy-cache/, '')
-			}
-		}
+		proxy
 	},
 	preview: {
 		port: 4173,
 		host: true,
-		proxy: {
-			'/proxy-cache': {
-				target: 'https://cache.kleinbem.dev',
-				changeOrigin: true,
-				rewrite: (path) => path.replace(/^\/proxy-cache/, '')
-			}
-		}
+		proxy
 	},
 	plugins: [
 		tailwindcss(),

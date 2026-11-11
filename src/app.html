@@ -10,7 +10,7 @@
 			try {
 				const p = localStorage.getItem('fleet-theme');
 				const m = window.matchMedia('(prefers-color-scheme: dark)').matches;
-				const t = (!p || p === 'system') ? (m ? 'dark' : 'light') : p;
+				const t = p === 'dark' || p === 'light' ? p : m ? 'dark' : 'light';
 				document.documentElement.dataset.theme = t;
 				document.documentElement.classList.toggle('dark', t === 'dark');
 				document.documentElement.classList.toggle('light', t === 'light');
