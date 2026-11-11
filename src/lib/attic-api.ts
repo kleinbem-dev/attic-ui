@@ -49,12 +49,13 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * Extracts the 32-character Nix hash from a full /nix/store path or returns clean hash.
+ * Extracts the 32-character Nix hash from a full /nix/store path or a bare hash.
+ * Returns '' when the input contains neither.
  */
 export function extractStoreHash(input: string): string {
 	const trimmed = input.trim();
 	const match = trimmed.match(/\/nix\/store\/([0-9a-df-np-sv-z]{32})/i) || trimmed.match(/^([0-9a-df-np-sv-z]{32})/i);
-	return match ? match[1] : trimmed;
+	return match ? match[1] : '';
 }
 
 /**
@@ -68,6 +69,29 @@ export function isPublicNixCache(endpoint: string): boolean {
 		return false;
 	}
 }
+
+/**
+ * Builds request headers; the bearer token only goes over HTTPS or to loopback,
+ * since the endpoint is free text and plain http would leak it.
+ */
+function authHeaders(endpoint: string, token?: string): HeadersInit {
+	if (!token || isPublicNixCache(endpoint) || tokenWithheld(endpoint, token)) return {};
+	return { Authorization: `Bearer ${token.trim()}` };
+}
+
+/** True when a token is set but would travel over plain HTTP to a non-loopback host. */
+export function tokenWithheld(endpoint: string, token?: string): boolean {
+	if (!token || isPublicNixCache(endpoint)) return false;
+	try {
+		const { protocol, hostname } = new URL(endpoint.trim());
+		const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+		return protocol !== 'https:' && !loopback;
+	} catch {
+		return true;
+	}
+}
+
+const WITHHELD_MSG = 'Token not sent over plain HTTP: use an https:// endpoint';
 
 /**
  * Resolves the effective base URL, routing through local Vite proxy on localhost
@@ -107,13 +131,12 @@ export async function queryCacheInfo(
 	const start = performance.now();
 	const base = resolveEndpoint(endpoint);
 	const isNixOSPublic = isPublicNixCache(endpoint);
-	const url = isNixOSPublic ? `${base}/nix-cache-info` : `${base}/${cacheName}/nix-cache-info`;
+	const url = isNixOSPublic
+		? `${base}/nix-cache-info`
+		: `${base}/${encodeURIComponent(cacheName)}/nix-cache-info`;
 
 	try {
-		const headers: HeadersInit = {};
-		if (token && !isNixOSPublic) {
-			headers['Authorization'] = `Bearer ${token.trim()}`;
-		}
+		const headers = authHeaders(endpoint, token);
 
 		const res = await fetch(url, {
 			headers,
@@ -142,7 +165,12 @@ export async function queryCacheInfo(
 			ok: false,
 			status: res.status,
 			latencyMs,
-			error: res.status === 401 ? 'Unauthorized (token required)' : `HTTP ${res.status}`
+			error:
+				res.status === 401
+					? tokenWithheld(endpoint, token)
+						? WITHHELD_MSG
+						: 'Unauthorized (token required)'
+					: `HTTP ${res.status}`
 		};
 	} catch (err: unknown) {
 		const latencyMs = Math.round(performance.now() - start);
@@ -182,13 +210,10 @@ export async function fetchNarInfo(
 	const isNixOSPublic = isPublicNixCache(endpoint);
 	const url = isNixOSPublic
 		? `${base}/${cleanHash}.narinfo`
-		: `${base}/${cacheName}/${cleanHash}.narinfo`;
+		: `${base}/${encodeURIComponent(cacheName)}/${cleanHash}.narinfo`;
 
 	try {
-		const headers: HeadersInit = {};
-		if (token && !isNixOSPublic) {
-			headers['Authorization'] = `Bearer ${token.trim()}`;
-		}
+		const headers = authHeaders(endpoint, token);
 
 		const res = await fetch(url, {
 			headers,
@@ -199,7 +224,13 @@ export async function fetchNarInfo(
 			return { ok: false, status: 404, error: 'Path not found in cache' };
 		}
 		if (res.status === 401) {
-			return { ok: false, status: 401, error: 'Unauthorized: Token required to view this path' };
+			return {
+				ok: false,
+				status: 401,
+				error: tokenWithheld(endpoint, token)
+					? WITHHELD_MSG
+					: 'Unauthorized: Token required to view this path'
+			};
 		}
 		if (!res.ok) {
 			return { ok: false, status: res.status, error: `Server returned HTTP ${res.status}` };
