@@ -5,7 +5,7 @@
 @import "@kleinbem/web-config/badges.css";
 
 /* App-level names for web-config's tokens; without these the bg-bg-*, text-text-*,
-   border-border-subtle and *-brand utilities generate no CSS. */
+   border-border-subtle, *-brand* and *-status-* utilities generate no CSS. */
 @theme inline {
 	--color-bg-surface: var(--color-bg);
 	--color-bg-elevated: var(--color-surface);
@@ -14,6 +14,9 @@
 	--color-text-muted: var(--color-muted);
 	--color-border-subtle: var(--color-line);
 	--color-brand: var(--color-accent);
+	--color-brand-contrast: var(--color-accent-fg);
+	--color-status-healthy: var(--color-status-success);
+	--color-status-critical: var(--color-status-danger);
 }
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));

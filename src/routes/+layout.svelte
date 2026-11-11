@@ -110,6 +110,7 @@
 
 <CommandPalette
 	bind:open={commandPaletteOpen}
+	shortcut={false}
 	items={commandItems}
 	placeholder="Search paths, actions, or configuration..."
 />
