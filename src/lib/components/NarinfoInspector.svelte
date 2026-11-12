@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { formatBytes, extractStoreHash } from '../attic-api';
+	import { untrack } from 'svelte';
+	import { formatBytes, extractStoreHash, getNarinfoUrl, getNarDownloadUrl } from '../attic-api';
 	import type { NarInfo } from '../types';
 
 	let {
@@ -7,12 +8,16 @@
 		isLoading = false,
 		error = '',
 		source = '',
+		endpoint = '',
+		cacheName = '',
 		onSearch
 	}: {
 		narInfo?: NarInfo | null;
 		isLoading?: boolean;
 		error?: string;
 		source?: string;
+		endpoint?: string;
+		cacheName?: string;
 		onSearch: (hashOrPath: string) => void;
 	} = $props();
 
@@ -21,16 +26,76 @@
 	let copiedPath = $state(false);
 	let copiedRaw = $state(false);
 
+	interface BreadcrumbItem {
+		hash: string;
+		label: string;
+	}
+	let historyTrail = $state<BreadcrumbItem[]>([]);
+
+	// Update breadcrumb trail whenever an inspected narInfo loads
+	$effect(() => {
+		const currentPath = narInfo?.storePath;
+		if (!currentPath) return;
+		const hash = extractStoreHash(currentPath);
+		if (!hash) return;
+		const rawName = currentPath.split('/nix/store/')[1] || '';
+		const name = rawName.replace(/^[0-9a-df-np-sv-z]{32}-/, '') || hash.slice(0, 8);
+
+		untrack(() => {
+			const existingIdx = historyTrail.findIndex((item) => item.hash === hash);
+			if (existingIdx >= 0) {
+				if (existingIdx !== historyTrail.length - 1) {
+					historyTrail = historyTrail.slice(0, existingIdx + 1);
+				}
+			} else {
+				historyTrail = [...historyTrail.slice(-11), { hash, label: name }];
+			}
+		});
+	});
+
+	function goBack() {
+		if (historyTrail.length > 1) {
+			const target = historyTrail[historyTrail.length - 2];
+			inputVal = target.hash;
+			onSearch(target.hash);
+		}
+	}
+
+	function goToBreadcrumb(index: number) {
+		const target = historyTrail[index];
+		if (target) {
+			inputVal = target.hash;
+			onSearch(target.hash);
+		}
+	}
+
+	const narinfoUrl = $derived(
+		narInfo ? getNarinfoUrl(endpoint, cacheName, narInfo.storePath) : ''
+	);
+	const narDownloadUrl = $derived(
+		narInfo && narInfo.url ? getNarDownloadUrl(endpoint, cacheName, narInfo.url) : ''
+	);
+
 	const fleetSamples = [
 		{
 			name: 'core-pi (system)',
 			hash: '3kgaz3f1bwvyaa57lch9gyks29cmsjnx',
-			desc: 'Latest NixOS toplevel'
+			desc: 'Latest Raspberry Pi NixOS toplevel'
+		},
+		{
+			name: 'orin-nano (system)',
+			hash: '6986iw0ik1q2l79vkgzd9zq50614335b',
+			desc: 'NVIDIA Jetson Orin Nano toplevel'
+		},
+		{
+			name: 'nixos-nvme (workstation)',
+			hash: 'fbsb1w8y4xxh7pjymjfbwnpxqar0mixc',
+			desc: 'Workstation NixOS toplevel'
 		},
 		{
 			name: 'attic-ui (spa)',
 			hash: '5p0mxq29mi845j1f1s9hfv7lpabiynb3',
-			desc: 'Attic web dashboard'
+			desc: 'Attic web dashboard closure'
 		}
 	];
 
@@ -126,7 +191,7 @@
 
 	<!-- Sample Chips -->
 	<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-		<div class="flex items-center gap-1.5">
+		<div class="flex items-center gap-1.5 flex-wrap">
 			<span class="text-text-muted font-medium">Fleet:</span>
 			{#each fleetSamples as sample}
 				<button
@@ -140,7 +205,7 @@
 				</button>
 			{/each}
 		</div>
-		<div class="flex items-center gap-1.5">
+		<div class="flex items-center gap-1.5 flex-wrap">
 			<span class="text-text-muted font-medium">Upstream:</span>
 			{#each upstreamSamples as sample}
 				<button
@@ -154,6 +219,36 @@
 			{/each}
 		</div>
 	</div>
+
+	<!-- Breadcrumb Trail & History -->
+	{#if historyTrail.length > 1}
+		<div class="flex items-center gap-1.5 text-xs text-text-muted overflow-x-auto py-1 border-t border-border-subtle/50 pt-2.5">
+			<button
+				type="button"
+				onclick={goBack}
+				class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 text-[11px] font-mono cursor-pointer shrink-0 transition-colors"
+				title="Navigate to previous closure"
+			>
+				← Back
+			</button>
+			<span class="text-text-muted/60 text-[10px] shrink-0 font-medium uppercase tracking-wider">Trail:</span>
+			<div class="flex items-center gap-1 overflow-x-auto">
+				{#each historyTrail as item, i}
+					{#if i > 0}
+						<span class="text-text-muted/40 shrink-0">/</span>
+					{/if}
+					<button
+						type="button"
+						onclick={() => goToBreadcrumb(i)}
+						class="truncate max-w-[150px] px-1.5 py-0.5 rounded transition-colors text-[11px] font-mono cursor-pointer shrink-0 {i === historyTrail.length - 1 ? 'font-semibold text-brand bg-brand/10 border border-brand/20' : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'}"
+						title="{item.label} ({item.hash})"
+					>
+						{item.label}
+					</button>
+				{/each}
+			</div>
+		</div>
+	{/if}
 
 	<!-- Error Message Display -->
 	{#if error}
@@ -169,8 +264,8 @@
 	<!-- Results Panel -->
 	{#if narInfo}
 		<div class="space-y-4 pt-1">
-			<div class="flex items-center justify-between border-b border-border-subtle pb-2">
-				<div class="flex items-center gap-2">
+			<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border-subtle pb-2">
+				<div class="flex items-center gap-2 flex-wrap">
 					<button
 						type="button"
 						onclick={() => (activeTab = 'parsed')}
@@ -191,13 +286,38 @@
 						</span>
 					{/if}
 				</div>
-				<button
-					type="button"
-					onclick={() => copyToClipboard(narInfo.storePath, 'path')}
-					class="text-[11px] text-text-muted hover:text-text-primary flex items-center gap-1 cursor-pointer font-mono"
-				>
-					<span>{copiedPath ? '✓ Copied' : 'Copy Store Path'}</span>
-				</button>
+
+				<div class="flex items-center gap-3 text-[11px] font-mono flex-wrap">
+					{#if narinfoUrl}
+						<a
+							href={narinfoUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="text-text-muted hover:text-brand flex items-center gap-1 transition-colors"
+							title="Open raw .narinfo HTTP URL in a new tab"
+						>
+							<span>View .narinfo ↗</span>
+						</a>
+					{/if}
+					{#if narDownloadUrl}
+						<a
+							href={narDownloadUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="text-text-muted hover:text-brand flex items-center gap-1 transition-colors"
+							title="Download compressed NAR archive"
+						>
+							<span>Download NAR ⤓</span>
+						</a>
+					{/if}
+					<button
+						type="button"
+						onclick={() => copyToClipboard(narInfo.storePath, 'path')}
+						class="text-text-muted hover:text-text-primary flex items-center gap-1 cursor-pointer transition-colors"
+					>
+						<span>{copiedPath ? '✓ Copied' : 'Copy Store Path'}</span>
+					</button>
+				</div>
 			</div>
 
 			{#if activeTab === 'parsed'}

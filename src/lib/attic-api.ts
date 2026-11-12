@@ -101,6 +101,35 @@ export function resolveEndpoint(endpoint: string): string {
 }
 
 /**
+ * Resolves the direct URL to the .narinfo file for an inspected path.
+ */
+export function getNarinfoUrl(endpoint: string, cacheName: string, hashOrPath: string): string {
+	const cleanHash = extractStoreHash(hashOrPath);
+	if (!cleanHash) return '';
+	const base = resolveEndpoint(endpoint);
+	const isNixOSPublic = isPublicNixCache(endpoint);
+	return isNixOSPublic
+		? `${base}/${cleanHash}.narinfo`
+		: `${base}/${encodeURIComponent(cacheName)}/${cleanHash}.narinfo`;
+}
+
+/**
+ * Resolves the download URL for a NAR archive referenced by narInfo.url.
+ */
+export function getNarDownloadUrl(endpoint: string, cacheName: string, narUrl: string): string {
+	if (!narUrl) return '';
+	if (narUrl.startsWith('http://') || narUrl.startsWith('https://')) {
+		return narUrl;
+	}
+	const base = resolveEndpoint(endpoint);
+	const isNixOSPublic = isPublicNixCache(endpoint);
+	const cleanNarPath = narUrl.replace(/^\/+/, '');
+	return isNixOSPublic
+		? `${base}/${cleanNarPath}`
+		: `${base}/${encodeURIComponent(cacheName)}/${cleanNarPath}`;
+}
+
+/**
  * Tests connectivity and queries cache info.
  */
 export async function queryCacheInfo(
