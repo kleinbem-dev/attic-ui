@@ -13,6 +13,7 @@
 	let status = $state<CacheStatus>('unknown');
 	let latencyMs = $state<number | null>(null);
 	let errorMessage = $state('');
+	let isPrivateNotice = $state(false);
 
 	let activeNarInfo = $state<NarInfo | null>(null);
 	let isInspecting = $state(false);
@@ -21,10 +22,12 @@
 
 	// Bumped per test so results of tests for older settings are dropped.
 	let testRun = 0;
+	let inspectRun = 0;
 
 	async function testConnection() {
 		const run = ++testRun;
 		errorMessage = '';
+		isPrivateNotice = false;
 		status = 'checking';
 		const res = await queryCacheInfo(endpoint, cacheName, token);
 		if (run !== testRun) return;
@@ -32,18 +35,30 @@
 
 		if (res.ok) {
 			status = 'healthy';
+			isPrivateNotice = false;
 		} else if (res.status === 401) {
-			status = 'degraded';
-			errorMessage = tokenWithheld(endpoint, token)
-				? `Reachable: ${res.error}`
-				: 'Reachable: Authentication token required for private cache.';
+			if (token.trim()) {
+				// A token was supplied but rejected by the cache
+				status = 'down';
+				isPrivateNotice = false;
+				errorMessage = tokenWithheld(endpoint, token)
+					? (res.error || '')
+					: 'Authentication failed: Token was rejected by the cache';
+			} else {
+				// Anonymous request to private cache: normal operational state
+				status = 'healthy';
+				isPrivateNotice = true;
+				errorMessage = tokenWithheld(endpoint, token) ? (res.error || '') : '';
+			}
 		} else {
 			status = 'down';
+			isPrivateNotice = false;
 			errorMessage = res.error || `HTTP ${res.status}`;
 		}
 	}
 
 	async function inspectPath(hashOrPath: string) {
+		const run = ++inspectRun;
 		isInspecting = true;
 		inspectorError = '';
 		inspectionSource = '';
@@ -54,6 +69,8 @@
 
 		try {
 			let res = await fetchNarInfo(targetEndpoint, targetCache, hashOrPath, targetToken);
+			if (run !== inspectRun) return;
+
 			let source = targetEndpoint;
 			// no-link: Attic skips caching upstream paths signed by public cache keys (upstreamCacheKeyNames).
 			const isKleinbemCache = (() => {
@@ -65,22 +82,30 @@
 			})();
 			if (!res.ok && res.status === 404 && isKleinbemCache) {
 				const fallback = await fetchNarInfo('https://cache.nixos.org', '', hashOrPath);
+				if (run !== inspectRun) return;
 				if (fallback.ok && fallback.data) {
 					res = fallback;
 					source = 'cache.nixos.org (upstream public)';
 				}
 			}
 
+			if (run !== inspectRun) return;
+
 			if (res.ok && res.data) {
 				activeNarInfo = res.data;
 				inspectionSource = source;
+			} else if (res.status === 401) {
+				inspectorError = 'Private fleet closure. Paste your bearer token in the Cache Endpoint card above to view this path.';
 			} else {
 				inspectorError = res.error || 'Failed to inspect path';
 			}
 		} catch (err: unknown) {
+			if (run !== inspectRun) return;
 			inspectorError = err instanceof Error ? err.message : 'Network error querying cache';
 		} finally {
-			isInspecting = false;
+			if (run === inspectRun) {
+				isInspecting = false;
+			}
 		}
 	}
 
@@ -90,12 +115,24 @@
 			const savedCache = localStorage.getItem('attic-cache');
 			const savedToken = localStorage.getItem('attic-token');
 
-			if (savedEndpoint) endpoint = savedEndpoint;
+			if (savedEndpoint) {
+				endpoint = savedEndpoint;
+			} else if (
+				typeof window !== 'undefined' &&
+				(window.location.hostname === 'kleinbem.dev' || window.location.hostname.endsWith('.kleinbem.dev'))
+			) {
+				endpoint = window.location.origin;
+			}
 			if (savedCache) cacheName = savedCache;
 			if (savedToken) token = savedToken;
 		} catch (e) {}
 
 		testConnection();
+
+		// Auto-populate inspector on first visit so the explorer is never empty
+		if (!activeNarInfo) {
+			inspectPath('9l0j15jg8634hkb6d4c9y95mpxl0nhrd');
+		}
 
 		const listener = () => testConnection();
 		window.addEventListener('attic:test-connection', listener);
@@ -159,6 +196,7 @@
 		{status}
 		{latencyMs}
 		{errorMessage}
+		{isPrivateNotice}
 		onTestConnection={testConnection}
 	/>
 

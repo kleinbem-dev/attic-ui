@@ -9,6 +9,7 @@
 		status = 'healthy',
 		latencyMs = null,
 		errorMessage = '',
+		isPrivateNotice = false,
 		onTestConnection
 	}: {
 		endpoint: string;
@@ -17,11 +18,40 @@
 		status: CacheStatus;
 		latencyMs: number | null;
 		errorMessage?: string;
+		isPrivateNotice?: boolean;
 		onTestConnection: () => void;
 	} = $props();
 
 	let showToken = $state(false);
 	let isTesting = $state(false);
+	let copiedId = $state<string | null>(null);
+	let copyFailedId = $state<string | null>(null);
+
+	const isKleinbemEndpoint = $derived((() => {
+		try {
+			const host = new URL(endpoint).hostname;
+			return host === 'kleinbem.dev' || host.endsWith('.kleinbem.dev');
+		} catch {
+			return false;
+		}
+	})());
+	const systemPublicKey = 'system:dCe+aNk1+Dwf3IG6OVBKcf5h0oL0hkRVqYiLN7iOJhU=';
+
+	async function copyText(text: string, id: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			copiedId = id;
+			copyFailedId = null;
+			setTimeout(() => {
+				if (copiedId === id) copiedId = null;
+			}, 2000);
+		} catch {
+			copyFailedId = id;
+			setTimeout(() => {
+				if (copyFailedId === id) copyFailedId = null;
+			}, 3000);
+		}
+	}
 
 	async function handleTest() {
 		isTesting = true;
@@ -123,6 +153,14 @@
 				<span>{errorMessage}</span>
 				<span class="text-[10px] uppercase font-mono">Status Error</span>
 			</div>
+		{:else if isPrivateNotice && !token}
+			<div class="rounded-lg bg-brand/10 border border-brand/20 px-3.5 py-2.5 text-xs text-text-primary flex items-center justify-between gap-3">
+				<div class="flex items-center gap-2">
+					<span class="text-sm">🔒</span>
+					<span>Fleet cache is reachable and operational. A token is required to inspect private paths, or optional for public upstreams.</span>
+				</div>
+				<span class="text-[10px] font-mono text-brand font-semibold uppercase tracking-wider shrink-0">Private Cache</span>
+			</div>
 		{/if}
 
 		<div class="flex items-center justify-end gap-3 pt-1">
@@ -144,9 +182,19 @@
 
 	<!-- Fleet Architecture & Telemetry Specs Card -->
 	<div class="glass-panel rounded-2xl p-5 shadow-xs space-y-4">
-		<div class="flex items-center gap-2 border-b border-border-subtle pb-3">
-			<span class="text-base">⚙️</span>
-			<h2 class="text-sm font-semibold text-text-primary">Storage & Architecture</h2>
+		<div class="flex items-center justify-between border-b border-border-subtle pb-3">
+			<div class="flex items-center gap-2">
+				<span class="text-base">⚙️</span>
+				<h2 class="text-sm font-semibold text-text-primary">Storage & Architecture</h2>
+			</div>
+			<button
+				type="button"
+				onclick={() => copyText('41', 'priority')}
+				class="rounded bg-brand/10 hover:bg-brand/20 px-2 py-0.5 font-mono text-[10px] font-semibold {copyFailedId === 'priority' ? 'text-status-critical' : 'text-brand'} transition-colors cursor-pointer"
+				title="Click to copy priority"
+			>
+				{copiedId === 'priority' ? '✓ Copied' : copyFailedId === 'priority' ? 'Copy failed' : 'Priority 41'}
+			</button>
 		</div>
 
 		<div class="space-y-3 text-xs">
@@ -175,17 +223,41 @@
 				<span class="font-mono text-text-secondary">4 MiB</span>
 			</div>
 
+			{#if cacheName === 'system' && isKleinbemEndpoint}
+				<div class="border-t border-border-subtle pt-3 space-y-1.5">
+					<div class="flex items-center justify-between">
+						<span class="text-[11px] font-medium text-text-muted uppercase tracking-wider">
+							Public Key
+						</span>
+						<button
+							type="button"
+							onclick={() => copyText(systemPublicKey, 'pubkey')}
+							class="text-[10px] font-mono {copyFailedId === 'pubkey' ? 'text-status-critical' : 'text-brand'} hover:underline cursor-pointer"
+						>
+							{copiedId === 'pubkey' ? '✓ Copied' : copyFailedId === 'pubkey' ? 'Failed to copy' : 'Copy'}
+						</button>
+					</div>
+					<div class="rounded border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[10px] text-text-secondary break-all">
+						{systemPublicKey}
+					</div>
+				</div>
+			{/if}
+
 			<div class="border-t border-border-subtle pt-3">
 				<div class="text-[11px] font-medium text-text-muted mb-1.5 uppercase tracking-wider">
 					Upstream Public Proxies
 				</div>
 				<div class="flex flex-wrap gap-1.5">
-					<span class="rounded-md border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[11px] text-text-secondary">
-						cache.nixos.org-1
-					</span>
-					<span class="rounded-md border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[11px] text-text-secondary">
-						nix-community.cachix.org-1
-					</span>
+					{#each ['cache.nixos.org-1', 'nix-community.cachix.org-1', 'devenv.cachix.org-1', 'cache.nixos-cuda.org'] as proxy}
+						<button
+							type="button"
+							onclick={() => copyText(proxy, proxy)}
+							class="rounded-md border border-border-subtle bg-bg-surface hover:border-brand/40 px-2 py-0.5 font-mono text-[10px] {copiedId === proxy ? 'text-brand border-brand/60' : copyFailedId === proxy ? 'text-status-critical' : 'text-text-secondary hover:text-text-primary'} transition-colors cursor-pointer"
+							title="Click to copy {proxy}"
+						>
+							{copiedId === proxy ? '✓ Copied' : copyFailedId === proxy ? 'Copy failed' : proxy}
+						</button>
+					{/each}
 				</div>
 			</div>
 
