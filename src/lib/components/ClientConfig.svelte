@@ -13,7 +13,20 @@
 	let copied = $state(false);
 
 	const cleanEndpoint = $derived(endpoint.replace(/\/+$/, ''));
-	const isPublicNix = $derived(isPublicNixCache(cleanEndpoint));
+	const isNixosOrg = $derived((() => {
+		try {
+			return new URL(cleanEndpoint).hostname === 'cache.nixos.org';
+		} catch {
+			return false;
+		}
+	})());
+	const isKleinbemCache = $derived((() => {
+		try {
+			return new URL(cleanEndpoint).hostname === 'cache.kleinbem.dev';
+		} catch {
+			return false;
+		}
+	})());
 	const isKleinbemEndpoint = $derived((() => {
 		try {
 			const host = new URL(cleanEndpoint).hostname;
@@ -22,16 +35,18 @@
 			return false;
 		}
 	})());
+	const isPublicNix = $derived(isPublicNixCache(cleanEndpoint));
 	const cacheUrl = $derived(isPublicNix ? cleanEndpoint : `${cleanEndpoint}/${cacheName}`);
 
-	const knownPublicKey = $derived(
-		cacheName === 'system' && isKleinbemEndpoint
-			? 'system:dCe+aNk1+Dwf3IG6OVBKcf5h0oL0hkRVqYiLN7iOJhU='
-			: `${cacheName}:<your-attic-public-key>`
-	);
+	const knownPublicKey = $derived((() => {
+		if (cacheName === 'system' && isKleinbemEndpoint && !isKleinbemCache) {
+			return 'system:dCe+aNk1+Dwf3IG6OVBKcf5h0oL0hkRVqYiLN7iOJhU=';
+		}
+		return null;
+	})());
 
 	const nixosSnippet = $derived(
-		isPublicNix
+		isNixosOrg
 			? `nix.settings = {
   substituters = [
     "https://cache.nixos.org"
@@ -47,24 +62,30 @@
   ];
   trusted-public-keys = [
     "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=",
-    "${knownPublicKey}"
+    ${knownPublicKey ? `"${knownPublicKey}"` : `# Replace with public signing key once published:\n    # "${isKleinbemCache ? 'cache.kleinbem.dev-1' : (cacheName || 'cache')}:<public-key>"`}
   ];
 };`
 	);
 
 	const nixConfSnippet = $derived(
-		isPublicNix
+		isNixosOrg
 			? `substituters = https://cache.nixos.org
 trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=`
 			: `substituters = https://cache.nixos.org ${cacheUrl}
-trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= ${knownPublicKey}`
+trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=${knownPublicKey ? ` ${knownPublicKey}` : ''}`
 	);
 
-	const cliSnippet = $derived(
-		isPublicNix
-			? `# Query public NixOS cache directly via Nix CLI:
-nix path-info --store https://cache.nixos.org /nix/store/...`
-			: `# 1. Log in to the Attic server
+	const cliSnippet = $derived((() => {
+		if (isNixosOrg) {
+			return `# Query public NixOS cache directly via Nix CLI:
+nix path-info --store https://cache.nixos.org /nix/store/...`;
+		}
+		if (isKleinbemCache) {
+			return `# Copy paths to or from public cache:
+nix copy --to 's3://kleinbem-cache?endpoint=https://<account>.r2.cloudflarestorage.com' /nix/store/...
+nix path-info --store https://cache.kleinbem.dev /nix/store/...`;
+		}
+		return `# 1. Log in to the Attic server
 attic login kleinbem ${cleanEndpoint} <your-token>
 
 # 2. Query cache details
@@ -74,8 +95,8 @@ attic cache info ${cacheName}
 attic push ${cacheName} /nix/store/...
 
 # 4. Watch build outputs and push automatically (post-build-hook)
-nix-build --post-build-hook /run/current-system/sw/bin/attic-post-build-hook`
-	);
+nix-build --post-build-hook /run/current-system/sw/bin/attic-post-build-hook`;
+	})());
 
 	const currentCode = $derived(
 		activeConfig === 'nixos' ? nixosSnippet : activeConfig === 'nixconf' ? nixConfSnippet : cliSnippet

@@ -112,20 +112,69 @@
 
 	onMount(() => {
 		try {
-			const savedEndpoint = localStorage.getItem('attic-endpoint');
-			const savedCache = localStorage.getItem('attic-cache');
-			const savedToken = localStorage.getItem('attic-token');
+			const params = new URLSearchParams(window.location.search);
+			const urlEndpoint = params.get('endpoint');
+			const urlPreset = params.get('preset');
 
-			if (savedEndpoint) {
-				endpoint = savedEndpoint;
-			} else if (
-				typeof window !== 'undefined' &&
-				(window.location.hostname === 'kleinbem.dev' || window.location.hostname.endsWith('.kleinbem.dev'))
-			) {
-				endpoint = window.location.origin;
+			if (urlPreset === 'cache.kleinbem.dev' || urlEndpoint === 'https://cache.kleinbem.dev') {
+				endpoint = 'https://cache.kleinbem.dev';
+				cacheName = '';
+			} else if (urlPreset === 'attic.kleinbem.dev' || urlEndpoint === 'https://attic.kleinbem.dev') {
+				endpoint = 'https://attic.kleinbem.dev';
+				cacheName = 'system';
+				const urlCache = params.get('cache');
+				if (urlCache !== null) cacheName = urlCache;
+			} else if (urlPreset === 'cache.nixos.org' || urlEndpoint === 'https://cache.nixos.org') {
+				endpoint = 'https://cache.nixos.org';
+				cacheName = '';
+			} else if (urlEndpoint) {
+				endpoint = urlEndpoint;
+				const urlCache = params.get('cache');
+				if (urlCache !== null) cacheName = urlCache;
+			} else {
+				const savedEndpoint = localStorage.getItem('attic-endpoint');
+				const isLegacy = (() => {
+					try {
+						return savedEndpoint ? new URL(savedEndpoint).hostname === 'cache.kleinbem.dev' : false;
+					} catch {
+						return false;
+					}
+				})();
+
+				if (savedEndpoint && !isLegacy) {
+					endpoint = savedEndpoint;
+				} else {
+					// Default canonical endpoint: attic.kleinbem.dev
+					endpoint = 'https://attic.kleinbem.dev';
+					try {
+						localStorage.setItem('attic-endpoint', endpoint);
+					} catch (e) {}
+				}
+
+				const savedCache = localStorage.getItem('attic-cache');
+				if (savedCache) cacheName = savedCache;
 			}
-			if (savedCache) cacheName = savedCache;
-			if (savedToken) token = savedToken;
+
+			const savedToken = localStorage.getItem('attic-token');
+			if (savedToken) {
+				const selectedOrigin = (() => {
+					try {
+						return new URL(endpoint).origin;
+					} catch {
+						return '';
+					}
+				})();
+				const tokenOrigin = localStorage.getItem('attic-token-origin') || '';
+				// Token must only be restored if the selected endpoint matches the origin where the token was entered,
+				// or if legacy migration with no tokenOrigin matches the page origin or canonical fleet origin.
+				const isTrustedOrigin = tokenOrigin
+					? selectedOrigin === tokenOrigin
+					: (selectedOrigin === window.location.origin || selectedOrigin === 'https://attic.kleinbem.dev');
+
+				if (isTrustedOrigin) {
+					token = savedToken;
+				}
+			}
 		} catch (e) {}
 
 		testConnection();
@@ -144,14 +193,32 @@
 
 	// Retest shortly after the connection settings change, so the status never describes old ones.
 	let mounted = false;
+	let prevEndpoint = '';
 	$effect(() => {
-		endpoint;
+		const endpointChanged = mounted && prevEndpoint !== endpoint;
+		prevEndpoint = endpoint;
 		cacheName;
 		token;
 		if (!mounted) {
 			mounted = true;
 			return;
 		}
+
+		// When switching endpoint to the origin matching the saved token, restore it
+		if (endpointChanged && !token.trim()) {
+			try {
+				const origin = new URL(endpoint).origin;
+				const savedOrigin = localStorage.getItem('attic-token-origin') || '';
+				const isMatch = savedOrigin
+					? origin === savedOrigin
+					: (origin === window.location.origin || origin === 'https://attic.kleinbem.dev');
+				if (isMatch) {
+					const saved = localStorage.getItem('attic-token');
+					if (saved) token = saved;
+				}
+			} catch (e) {}
+		}
+
 		testRun++; // drop results of tests started for the old settings
 		status = 'unknown';
 		latencyMs = null;
@@ -159,11 +226,23 @@
 		return () => clearTimeout(timer);
 	});
 
+	let lastEndpoint = '';
 	$effect(() => {
 		try {
 			localStorage.setItem('attic-endpoint', endpoint);
 			localStorage.setItem('attic-cache', cacheName);
-			localStorage.setItem('attic-token', token);
+			if (token.trim()) {
+				try {
+					const origin = new URL(endpoint).origin;
+					localStorage.setItem('attic-token', token);
+					localStorage.setItem('attic-token-origin', origin);
+				} catch (e) {}
+			} else if (mounted && lastEndpoint === endpoint) {
+				// User explicitly cleared the token for this endpoint, remove it
+				localStorage.removeItem('attic-token');
+				localStorage.removeItem('attic-token-origin');
+			}
+			lastEndpoint = endpoint;
 		} catch (e) {}
 	});
 </script>

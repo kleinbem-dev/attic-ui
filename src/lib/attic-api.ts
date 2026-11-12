@@ -64,7 +64,7 @@ export function extractStoreHash(input: string): string {
 export function isPublicNixCache(endpoint: string): boolean {
 	try {
 		const parsed = new URL(endpoint.trim());
-		return parsed.hostname === 'cache.nixos.org';
+		return parsed.hostname === 'cache.nixos.org' || parsed.hostname === 'cache.kleinbem.dev';
 	} catch {
 		return false;
 	}
