@@ -4,7 +4,7 @@
 	import CacheTelemetry from '#lib/components/CacheTelemetry.svelte';
 	import NarinfoInspector from '#lib/components/NarinfoInspector.svelte';
 	import ClientConfig from '#lib/components/ClientConfig.svelte';
-	import { queryCacheInfo, fetchNarInfo, tokenWithheld } from '#lib/attic-api';
+	import { queryCacheInfo, fetchNarInfo, tokenWithheld, extractStoreHash } from '#lib/attic-api';
 	import type { NarInfo, CacheStatus } from '#lib/types';
 
 	let endpoint = $state('https://attic.kleinbem.dev');
@@ -19,6 +19,8 @@
 	let isInspecting = $state(false);
 	let inspectorError = $state('');
 	let inspectionSource = $state('');
+	let inspectedEndpoint = $state('');
+	let inspectedCacheName = $state('');
 
 	// Bumped per test so results of tests for older settings are dropped.
 	let testRun = 0;
@@ -71,6 +73,8 @@
 			let res = await fetchNarInfo(targetEndpoint, targetCache, hashOrPath, targetToken);
 			if (run !== inspectRun) return;
 
+			let effectiveEndpoint = targetEndpoint;
+			let effectiveCache = targetCache;
 			let source = targetEndpoint;
 			// no-link: Attic skips caching upstream paths signed by public cache keys (upstreamCacheKeyNames).
 			const isKleinbemCache = (() => {
@@ -87,6 +91,8 @@
 				if (fallback.ok && fallback.data) {
 					res = fallback;
 					source = 'cache.nixos.org (upstream public)';
+					effectiveEndpoint = 'https://cache.nixos.org';
+					effectiveCache = '';
 				}
 			}
 
@@ -95,6 +101,18 @@
 			if (res.ok && res.data) {
 				activeNarInfo = res.data;
 				inspectionSource = source;
+				inspectedEndpoint = effectiveEndpoint;
+				inspectedCacheName = effectiveCache;
+				if (typeof window !== 'undefined' && window.location) {
+					try {
+						const url = new URL(window.location.href);
+						const hash = extractStoreHash(hashOrPath);
+						if (hash && url.searchParams.get('path') !== hash) {
+							url.searchParams.set('path', hash);
+							window.history.replaceState({}, '', url.toString());
+						}
+					} catch (e) {}
+				}
 			} else if (res.status === 401) {
 				inspectorError = 'Private fleet closure. Paste your bearer token in the Cache Endpoint card above to view this path.';
 			} else {
@@ -181,7 +199,13 @@
 
 		// Auto-populate inspector on first visit so the explorer is never empty
 		if (!activeNarInfo) {
-			inspectPath('9l0j15jg8634hkb6d4c9y95mpxl0nhrd');
+			try {
+				const params = new URLSearchParams(window.location.search);
+				const urlPath = params.get('path');
+				inspectPath(urlPath || '9l0j15jg8634hkb6d4c9y95mpxl0nhrd');
+			} catch {
+				inspectPath('9l0j15jg8634hkb6d4c9y95mpxl0nhrd');
+			}
 		}
 
 		const listener = () => testConnection();
@@ -286,6 +310,8 @@
 		isLoading={isInspecting}
 		error={inspectorError}
 		source={inspectionSource}
+		endpoint={inspectedEndpoint || endpoint}
+		cacheName={inspectedCacheName !== '' ? inspectedCacheName : cacheName}
 		onSearch={inspectPath}
 	/>
 
