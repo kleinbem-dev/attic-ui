@@ -119,6 +119,13 @@
 			</button>
 			<button
 				type="button"
+				onclick={() => { endpoint = 'https://cache.kleinbem.dev'; cacheName = ''; }}
+				class="rounded px-2 py-0.5 border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 transition-colors font-mono cursor-pointer"
+			>
+				cache.kleinbem.dev
+			</button>
+			<button
+				type="button"
 				onclick={() => { endpoint = 'https://cache.nixos.org'; cacheName = ''; }}
 				class="rounded px-2 py-0.5 border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 transition-colors font-mono cursor-pointer"
 			>
