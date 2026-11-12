@@ -7,7 +7,7 @@
 	import { queryCacheInfo, fetchNarInfo, tokenWithheld } from '#lib/attic-api';
 	import type { NarInfo, CacheStatus } from '#lib/types';
 
-	let endpoint = $state('https://cache.kleinbem.dev');
+	let endpoint = $state('https://attic.kleinbem.dev');
 	let cacheName = $state('system');
 	let token = $state('');
 	let status = $state<CacheStatus>('unknown');
@@ -75,7 +75,8 @@
 			// no-link: Attic skips caching upstream paths signed by public cache keys (upstreamCacheKeyNames).
 			const isKleinbemCache = (() => {
 				try {
-					return new URL(targetEndpoint).hostname === 'cache.kleinbem.dev';
+					const host = new URL(targetEndpoint).hostname;
+					return host === 'attic.kleinbem.dev' || host === 'cache.kleinbem.dev' || host.endsWith('.kleinbem.dev');
 				} catch {
 					return false;
 				}

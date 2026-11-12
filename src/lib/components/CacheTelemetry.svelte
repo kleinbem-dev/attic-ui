@@ -3,7 +3,7 @@
 	import type { CacheStatus } from '#lib/types';
 
 	let {
-		endpoint = $bindable('https://cache.kleinbem.dev'),
+		endpoint = $bindable('https://attic.kleinbem.dev'),
 		cacheName = $bindable('system'),
 		token = $bindable(''),
 		status = 'healthy',
@@ -89,7 +89,7 @@
 					id="endpoint-input"
 					type="url"
 					bind:value={endpoint}
-					placeholder="https://cache.kleinbem.dev"
+					placeholder="https://attic.kleinbem.dev"
 					class="w-full rounded-lg border border-border-subtle bg-bg-surface px-3 py-2 text-xs font-mono text-text-primary focus:border-brand focus:outline-hidden"
 				/>
 			</div>
@@ -112,10 +112,10 @@
 			<span>Presets:</span>
 			<button
 				type="button"
-				onclick={() => { endpoint = 'https://cache.kleinbem.dev'; cacheName = 'system'; }}
+				onclick={() => { endpoint = 'https://attic.kleinbem.dev'; cacheName = 'system'; }}
 				class="rounded px-2 py-0.5 border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 transition-colors font-mono cursor-pointer"
 			>
-				cache.kleinbem.dev
+				attic.kleinbem.dev
 			</button>
 			<button
 				type="button"
