@@ -94,24 +94,10 @@ export function tokenWithheld(endpoint: string, token?: string): boolean {
 const WITHHELD_MSG = 'Token not sent over plain HTTP: use an https:// endpoint';
 
 /**
- * Resolves the effective base URL, routing through local Vite proxy on localhost
- * to bypass CORS when connecting to cache.kleinbem.dev.
+ * Cleans the base endpoint URL.
  */
 export function resolveEndpoint(endpoint: string): string {
-	const clean = endpoint.trim().replace(/\/+$/, '');
-	if (
-		typeof window !== 'undefined' &&
-		(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-	) {
-		try {
-			const parsed = new URL(clean);
-			if (parsed.hostname === 'cache.kleinbem.dev') {
-				const prefix = parsed.pathname.replace(/\/+$/, '');
-				return `/proxy-cache${prefix}`;
-			}
-		} catch {}
-	}
-	return clean;
+	return endpoint.trim().replace(/\/+$/, '');
 }
 
 /**

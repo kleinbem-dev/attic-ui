@@ -21,7 +21,20 @@
 	let copiedPath = $state(false);
 	let copiedRaw = $state(false);
 
-	const samplePackages = [
+	const fleetSamples = [
+		{
+			name: 'core-pi (system)',
+			hash: '3kgaz3f1bwvyaa57lch9gyks29cmsjnx',
+			desc: 'Latest NixOS toplevel'
+		},
+		{
+			name: 'attic-ui (spa)',
+			hash: '5p0mxq29mi845j1f1s9hfv7lpabiynb3',
+			desc: 'Attic web dashboard'
+		}
+	];
+
+	const upstreamSamples = [
 		{
 			name: 'jq-1.8.2',
 			hash: '9l0j15jg8634hkb6d4c9y95mpxl0nhrd'
@@ -112,18 +125,34 @@
 	</form>
 
 	<!-- Sample Chips -->
-	<div class="flex flex-wrap items-center gap-2 text-xs">
-		<span class="text-text-muted">Sample closures:</span>
-		{#each samplePackages as sample}
-			<button
-				type="button"
-				disabled={isLoading}
-				onclick={() => selectSample(sample.hash)}
-				class="rounded-md border border-border-subtle bg-bg-surface px-2.5 py-1 text-[11px] font-mono text-text-secondary hover:text-brand hover:border-brand/40 disabled:opacity-50 transition-colors cursor-pointer"
-			>
-				{sample.name}
-			</button>
-		{/each}
+	<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+		<div class="flex items-center gap-1.5">
+			<span class="text-text-muted font-medium">Fleet:</span>
+			{#each fleetSamples as sample}
+				<button
+					type="button"
+					disabled={isLoading}
+					onclick={() => selectSample(sample.hash)}
+					class="rounded-md border border-brand/30 bg-brand/5 hover:bg-brand/10 px-2 py-0.5 text-[11px] font-mono text-brand disabled:opacity-50 transition-colors cursor-pointer"
+					title="{sample.name} - {sample.desc}"
+				>
+					⚡ {sample.name}
+				</button>
+			{/each}
+		</div>
+		<div class="flex items-center gap-1.5">
+			<span class="text-text-muted font-medium">Upstream:</span>
+			{#each upstreamSamples as sample}
+				<button
+					type="button"
+					disabled={isLoading}
+					onclick={() => selectSample(sample.hash)}
+					class="rounded-md border border-border-subtle bg-bg-surface px-2 py-0.5 text-[11px] font-mono text-text-secondary hover:text-brand hover:border-brand/40 disabled:opacity-50 transition-colors cursor-pointer"
+				>
+					{sample.name}
+				</button>
+			{/each}
+		</div>
 	</div>
 
 	<!-- Error Message Display -->
@@ -290,18 +319,33 @@
 			<p class="max-w-md mx-auto text-text-muted">
 				Enter a Nix store path or hash above to query Attic's binary cache and inspect its closure metadata, references, and compression.
 			</p>
-			<div class="pt-2 flex flex-wrap justify-center items-center gap-2">
-				<span class="text-text-muted">Or try a sample package:</span>
-				{#each samplePackages as sample}
-					<button
-						type="button"
-						disabled={isLoading}
-						onclick={() => selectSample(sample.hash)}
-						class="rounded-lg border border-border-subtle bg-bg-surface px-3 py-1.5 text-xs font-mono text-text-secondary hover:text-brand hover:border-brand/50 disabled:opacity-50 transition-colors cursor-pointer"
-					>
-						⚡ {sample.name}
-					</button>
-				{/each}
+			<div class="pt-2 flex flex-col sm:flex-row justify-center items-center gap-3">
+				<div class="flex items-center gap-1.5 flex-wrap justify-center">
+					<span class="text-text-muted text-[11px]">Fleet:</span>
+					{#each fleetSamples as sample}
+						<button
+							type="button"
+							disabled={isLoading}
+							onclick={() => selectSample(sample.hash)}
+							class="rounded-lg border border-brand/30 bg-brand/5 hover:bg-brand/10 px-2.5 py-1 text-xs font-mono text-brand disabled:opacity-50 transition-colors cursor-pointer"
+						>
+							⚡ {sample.name}
+						</button>
+					{/each}
+				</div>
+				<div class="flex items-center gap-1.5 flex-wrap justify-center">
+					<span class="text-text-muted text-[11px]">Upstream:</span>
+					{#each upstreamSamples as sample}
+						<button
+							type="button"
+							disabled={isLoading}
+							onclick={() => selectSample(sample.hash)}
+							class="rounded-lg border border-border-subtle bg-bg-surface px-2.5 py-1 text-xs font-mono text-text-secondary hover:text-brand hover:border-brand/50 disabled:opacity-50 transition-colors cursor-pointer"
+						>
+							{sample.name}
+						</button>
+					{/each}
+				</div>
 			</div>
 		</div>
 	{/if}

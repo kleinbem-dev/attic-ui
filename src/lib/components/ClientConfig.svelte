@@ -14,7 +14,21 @@
 
 	const cleanEndpoint = $derived(endpoint.replace(/\/+$/, ''));
 	const isPublicNix = $derived(isPublicNixCache(cleanEndpoint));
+	const isKleinbemEndpoint = $derived((() => {
+		try {
+			const host = new URL(cleanEndpoint).hostname;
+			return host === 'kleinbem.dev' || host.endsWith('.kleinbem.dev');
+		} catch {
+			return false;
+		}
+	})());
 	const cacheUrl = $derived(isPublicNix ? cleanEndpoint : `${cleanEndpoint}/${cacheName}`);
+
+	const knownPublicKey = $derived(
+		cacheName === 'system' && isKleinbemEndpoint
+			? 'system:dCe+aNk1+Dwf3IG6OVBKcf5h0oL0hkRVqYiLN7iOJhU='
+			: `${cacheName}:<your-attic-public-key>`
+	);
 
 	const nixosSnippet = $derived(
 		isPublicNix
@@ -33,8 +47,7 @@
   ];
   trusted-public-keys = [
     "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=",
-    # Replace with your Attic cache public key from: attic cache info ${cacheName}
-    "${cacheName}:<your-attic-public-key>"
+    "${knownPublicKey}"
   ];
 };`
 	);
@@ -44,7 +57,7 @@
 			? `substituters = https://cache.nixos.org
 trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=`
 			: `substituters = https://cache.nixos.org ${cacheUrl}
-trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= ${cacheName}:<your-attic-public-key>`
+trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= ${knownPublicKey}`
 	);
 
 	const cliSnippet = $derived(
