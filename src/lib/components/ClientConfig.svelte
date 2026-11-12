@@ -2,7 +2,7 @@
 	import { isPublicNixCache } from '../attic-api';
 
 	let {
-		endpoint = 'https://cache.kleinbem.dev',
+		endpoint = 'https://attic.kleinbem.dev',
 		cacheName = 'system'
 	}: {
 		endpoint?: string;

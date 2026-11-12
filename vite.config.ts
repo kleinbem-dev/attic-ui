@@ -6,7 +6,7 @@ import { defineConfig } from 'vite';
 // Dev and preview both proxy the cache to sidestep CORS on localhost.
 const proxy = {
 	'/proxy-cache': {
-		target: 'https://cache.kleinbem.dev',
+		target: 'https://attic.kleinbem.dev',
 		changeOrigin: true,
 		rewrite: (path: string) => path.replace(/^\/proxy-cache/, '')
 	}
