@@ -87,4 +87,19 @@ describe('Frontend static, security, and accessibility contracts', () => {
 			);
 		}
 	});
+
+	it('uses only synthetic store hashes in test/ so fetchFromGitHub FOD checks never match stdenv', async () => {
+		const files = await listFiles('test');
+		for (const file of files) {
+			const content = await readFile(file, 'utf8');
+			const matches = content.match(/[0-9a-df-np-sv-z]{32}/g) ?? [];
+			for (const hash of matches) {
+				assert.match(
+					hash,
+					/^0{28}[0-9a-df-np-sv-z]{4}$/,
+					`Non-synthetic Nix store hash '${hash}' in ${file} risks colliding with fetchFromGitHub FOD inputs`
+				);
+			}
+		}
+	});
 });

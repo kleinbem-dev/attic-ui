@@ -27,7 +27,9 @@ import {
 	updateBreadcrumbTrail
 } from '../src/lib/attic-api.ts';
 
-const SAMPLE_HASH = '9l0j15jg8634hkb6d4c9y95mpxl0nhrd';
+// Synthetic Nix-base32 hashes so fetchFromGitHub's FOD scanner never matches stdenv inputs.
+const SAMPLE_HASH = '00000000000000000000000000000001';
+const DEP_HASH = '00000000000000000000000000000002';
 const SAMPLE_NARINFO = [
 	`StorePath: /nix/store/${SAMPLE_HASH}-jq-1.8.2`,
 	'URL: nar/1abc2def.nar.zst',
@@ -36,7 +38,7 @@ const SAMPLE_NARINFO = [
 	'FileSize: 204800',
 	'NarHash: sha256:fedcba9876543210',
 	'NarSize: 614400',
-	`References: ${SAMPLE_HASH}-jq-1.8.2 pqyiidz5mi73wv5f91d48s9plcqyj5bz-glibc-2.44`,
+	`References: ${SAMPLE_HASH}-jq-1.8.2 ${DEP_HASH}-glibc-2.44`,
 	'Deriver: 00000000000000000000000000000000-jq-1.8.2.drv',
 	'Sig: cache.nixos.org-1:sigOne==',
 	'Sig: custom-cache-1:sigTwo==',
@@ -68,7 +70,7 @@ describe('parseNarInfo & parseCacheInfo', () => {
 		assert.equal(parsed.narSize, 614400);
 		assert.deepEqual(parsed.references, [
 			`${SAMPLE_HASH}-jq-1.8.2`,
-			'pqyiidz5mi73wv5f91d48s9plcqyj5bz-glibc-2.44'
+			`${DEP_HASH}-glibc-2.44`
 		]);
 		assert.equal(parsed.deriver, '00000000000000000000000000000000-jq-1.8.2.drv');
 		assert.deepEqual(parsed.sig, ['cache.nixos.org-1:sigOne==', 'custom-cache-1:sigTwo==']);
@@ -578,9 +580,9 @@ describe('Target resolution, presets, public keys, and breadcrumb state', () => 
 	});
 
 	it('appends, rewinds, and caps closure breadcrumb history cleanly', () => {
-		const h1 = '9l0j15jg8634hkb6d4c9y95mpxl0nhrd';
-		const h2 = 'pqyiidz5mi73wv5f91d48s9plcqyj5bz';
-		const h3 = '5lpg7j8y8lf8c4zv318yi4rmgyn5yhip';
+		const h1 = '00000000000000000000000000000001';
+		const h2 = '00000000000000000000000000000002';
+		const h3 = '00000000000000000000000000000003';
 
 		let trail = updateBreadcrumbTrail([], `/nix/store/${h1}-jq-1.8.2`);
 		trail = updateBreadcrumbTrail(trail, `/nix/store/${h2}-glibc-2.44`);
