@@ -1,15 +1,26 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import StatusDot from '@kleinbem/web-config/components/StatusDot';
-	import type { CacheStatus } from '#lib/types';
+	import { isLoopbackHost, isPublicNixCache, parseEndpointUrl } from '#lib/attic-api';
+	import { ClipboardFeedback } from '#lib/clipboard.svelte';
+	import type { CacheInfo, CachePreset, CacheStatus } from '#lib/types';
 
 	let {
-		endpoint = $bindable('https://attic.kleinbem.dev'),
-		cacheName = $bindable('system'),
-		token = $bindable(''),
-		status = 'healthy',
+		endpoint,
+		cacheName,
+		token,
+		status = 'unknown',
 		latencyMs = null,
+		cacheInfo = null,
 		errorMessage = '',
 		isPrivateNotice = false,
+		presets = [],
+		publicKey = null,
+		specs = {},
+		onEndpointChange,
+		onCacheNameChange,
+		onTokenChange,
+		onSelectPreset,
 		onTestConnection
 	}: {
 		endpoint: string;
@@ -17,41 +28,39 @@
 		token: string;
 		status: CacheStatus;
 		latencyMs: number | null;
+		cacheInfo?: CacheInfo | null;
 		errorMessage?: string;
 		isPrivateNotice?: boolean;
-		onTestConnection: () => void;
+		presets?: CachePreset[];
+		publicKey?: string | null;
+		specs?: Record<string, string>;
+		onEndpointChange: (value: string) => void;
+		onCacheNameChange: (value: string) => void;
+		onTokenChange: (value: string) => void;
+		onSelectPreset: (preset: CachePreset) => void;
+		onTestConnection: () => Promise<void> | void;
 	} = $props();
 
 	let showToken = $state(false);
 	let isTesting = $state(false);
-	let copiedId = $state<string | null>(null);
-	let copyFailedId = $state<string | null>(null);
+	const clipboard = new ClipboardFeedback();
+	onDestroy(() => clipboard.destroy());
 
-	const isKleinbemEndpoint = $derived((() => {
-		try {
-			const host = new URL(endpoint).hostname;
-			return host === 'kleinbem.dev' || host.endsWith('.kleinbem.dev');
-		} catch {
-			return false;
-		}
-	})());
-	const systemPublicKey = 'system:dCe+aNk1+Dwf3IG6OVBKcf5h0oL0hkRVqYiLN7iOJhU=';
+	const parsedUrl = $derived(parseEndpointUrl(endpoint));
+	const transportLabel = $derived.by(() => {
+		if (!parsedUrl) return 'Invalid URL';
+		if (parsedUrl.protocol === 'https:') return 'HTTPS (TLS)';
+		if (isLoopbackHost(parsedUrl.hostname)) return 'Loopback HTTP';
+		return 'Plain HTTP (tokens withheld)';
+	});
 
-	async function copyText(text: string, id: string) {
-		try {
-			await navigator.clipboard.writeText(text);
-			copiedId = id;
-			copyFailedId = null;
-			setTimeout(() => {
-				if (copiedId === id) copiedId = null;
-			}, 2000);
-		} catch {
-			copyFailedId = id;
-			setTimeout(() => {
-				if (copyFailedId === id) copyFailedId = null;
-			}, 3000);
-		}
-	}
+	const cacheModeLabel = $derived.by(() => {
+		if (isPublicNixCache(endpoint)) return 'Public NixOS Cache';
+		const trimmed = cacheName.trim();
+		return trimmed ? `Multi-tenant (/${trimmed})` : 'Root Binary Cache';
+	});
+
+	const specEntries = $derived(Object.entries(specs));
 
 	async function handleTest() {
 		isTesting = true;
@@ -64,84 +73,80 @@
 </script>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-	<!-- Connection Configuration Card -->
-	<div class="glass-panel rounded-2xl p-5 lg:col-span-2 shadow-xs space-y-4">
-		<div class="flex items-center justify-between border-b border-border-subtle pb-3">
+	<section aria-labelledby="endpoint-card-heading" class="glass-panel rounded-2xl p-5 lg:col-span-2 shadow-xs space-y-4">
+		<div class="flex items-center justify-between border-b border-line pb-3">
 			<div class="flex items-center gap-2">
-				<span class="text-base">⚡</span>
-				<h2 class="text-sm font-semibold text-text-primary">Cache Endpoint & Authentication</h2>
+				<span aria-hidden="true" class="text-base">⚡</span>
+				<h2 id="endpoint-card-heading" class="text-sm font-semibold text-heading">
+					Cache Endpoint & Authentication
+				</h2>
 			</div>
 			<div class="flex items-center gap-2 text-xs">
 				<StatusDot {status} pulse={status === 'healthy'} size="sm" />
-				<span class="text-text-muted capitalize">{status}</span>
+				<span class="text-muted capitalize">{status}</span>
 				{#if latencyMs !== null}
-					<span class="font-mono text-text-secondary">({latencyMs}ms)</span>
+					<span class="font-mono text-fg">({latencyMs}ms)</span>
 				{/if}
 			</div>
 		</div>
 
 		<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 			<div>
-				<label for="endpoint-input" class="block text-xs font-medium text-text-secondary mb-1">
+				<label for="endpoint-input" class="block text-xs font-medium text-fg mb-1">
 					Server URL
 				</label>
 				<input
 					id="endpoint-input"
 					type="url"
-					bind:value={endpoint}
-					placeholder="https://attic.kleinbem.dev"
-					class="w-full rounded-lg border border-border-subtle bg-bg-surface px-3 py-2 text-xs font-mono text-text-primary focus:border-brand focus:outline-hidden"
+					value={endpoint}
+					oninput={(e) => onEndpointChange(e.currentTarget.value)}
+					placeholder="https://cache.nixos.org"
+					spellcheck="false"
+					class="w-full rounded-lg border border-line bg-bg px-3 py-2 text-xs font-mono text-heading focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 				/>
 			</div>
 
 			<div>
-				<label for="cache-name-input" class="block text-xs font-medium text-text-secondary mb-1">
-					Cache Name
+				<label for="cache-name-input" class="block text-xs font-medium text-fg mb-1">
+					Cache Name <span class="text-muted font-normal">(blank for root caches)</span>
 				</label>
 				<input
 					id="cache-name-input"
 					type="text"
-					bind:value={cacheName}
-					placeholder="system"
-					class="w-full rounded-lg border border-border-subtle bg-bg-surface px-3 py-2 text-xs font-mono text-text-primary focus:border-brand focus:outline-hidden"
+					value={cacheName}
+					oninput={(e) => onCacheNameChange(e.currentTarget.value)}
+					placeholder="main"
+					spellcheck="false"
+					class="w-full rounded-lg border border-line bg-bg px-3 py-2 text-xs font-mono text-heading focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 				/>
 			</div>
 		</div>
 
-		<div class="flex items-center gap-2 text-[11px] text-text-muted">
-			<span>Presets:</span>
-			<button
-				type="button"
-				onclick={() => { endpoint = 'https://attic.kleinbem.dev'; cacheName = 'system'; }}
-				class="rounded px-2 py-0.5 border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 transition-colors font-mono cursor-pointer"
-			>
-				attic.kleinbem.dev
-			</button>
-			<button
-				type="button"
-				onclick={() => { endpoint = 'https://cache.kleinbem.dev'; cacheName = ''; }}
-				class="rounded px-2 py-0.5 border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 transition-colors font-mono cursor-pointer"
-			>
-				cache.kleinbem.dev
-			</button>
-			<button
-				type="button"
-				onclick={() => { endpoint = 'https://cache.nixos.org'; cacheName = ''; }}
-				class="rounded px-2 py-0.5 border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 transition-colors font-mono cursor-pointer"
-			>
-				cache.nixos.org
-			</button>
-		</div>
+		{#if presets.length > 0}
+			<div class="flex flex-wrap items-center gap-2 text-[11px] text-muted">
+				<span>Presets:</span>
+				{#each presets as preset (`${preset.endpoint}::${preset.cacheName}`)}
+					<button
+						type="button"
+						onclick={() => onSelectPreset(preset)}
+						class="rounded px-2 py-1 border border-line bg-bg hover:text-accent hover:border-accent/40 transition-colors font-mono cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+					>
+						{preset.label}
+					</button>
+				{/each}
+			</div>
+		{/if}
 
 		<div>
 			<div class="flex items-center justify-between mb-1">
-				<label for="token-input" class="block text-xs font-medium text-text-secondary">
-					Authentication Bearer Token <span class="text-text-muted">(Optional for public paths)</span>
+				<label for="token-input" class="block text-xs font-medium text-fg">
+					Authentication Bearer Token <span class="text-muted font-normal">(optional, scoped per origin)</span>
 				</label>
 				<button
 					type="button"
+					aria-pressed={showToken}
 					onclick={() => (showToken = !showToken)}
-					class="text-[11px] text-brand hover:underline cursor-pointer"
+					class="text-[11px] text-accent hover:underline cursor-pointer px-1 rounded focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 				>
 					{showToken ? 'Hide' : 'Show'}
 				</button>
@@ -149,24 +154,33 @@
 			<input
 				id="token-input"
 				type={showToken ? 'text' : 'password'}
-				bind:value={token}
+				value={token}
+				oninput={(e) => onTokenChange(e.currentTarget.value)}
+				autocomplete="off"
+				spellcheck="false"
 				placeholder="eyJhbGciOi..."
-				class="w-full rounded-lg border border-border-subtle bg-bg-surface px-3 py-2 text-xs font-mono text-text-primary focus:border-brand focus:outline-hidden"
+				class="w-full rounded-lg border border-line bg-bg px-3 py-2 text-xs font-mono text-heading focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 			/>
 		</div>
 
 		{#if errorMessage}
-			<div class="rounded-lg bg-status-critical/10 border border-status-critical/20 px-3 py-2 text-xs text-status-critical flex items-center justify-between">
+			<div
+				role="alert"
+				class="rounded-lg bg-status-danger/10 border border-status-danger/20 px-3 py-2 text-xs text-status-danger flex items-center justify-between gap-2"
+			>
 				<span>{errorMessage}</span>
-				<span class="text-[10px] uppercase font-mono">Status Error</span>
+				<span class="text-[10px] uppercase font-mono shrink-0">Status Error</span>
 			</div>
 		{:else if isPrivateNotice && !token}
-			<div class="rounded-lg bg-brand/10 border border-brand/20 px-3.5 py-2.5 text-xs text-text-primary flex items-center justify-between gap-3">
+			<div
+				role="status"
+				class="rounded-lg bg-accent/10 border border-accent/20 px-3.5 py-2.5 text-xs text-heading flex items-center justify-between gap-3"
+			>
 				<div class="flex items-center gap-2">
-					<span class="text-sm">🔒</span>
-					<span>Fleet cache is reachable and operational. A token is required to inspect private paths, or optional for public upstreams.</span>
+					<span aria-hidden="true" class="text-sm">🔒</span>
+					<span>Cache is reachable and operational. Supply a bearer token to inspect private store paths.</span>
 				</div>
-				<span class="text-[10px] font-mono text-brand font-semibold uppercase tracking-wider shrink-0">Private Cache</span>
+				<span class="text-[10px] font-mono text-accent font-semibold uppercase tracking-wider shrink-0">Private Cache</span>
 			</div>
 		{/if}
 
@@ -175,107 +189,100 @@
 				type="button"
 				onclick={handleTest}
 				disabled={isTesting}
-				class="inline-flex items-center gap-2 rounded-lg bg-brand px-3.5 py-2 text-xs font-medium text-brand-contrast hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
+				class="inline-flex items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-accent-fg hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
 			>
 				{#if isTesting}
-					<span class="animate-spin text-xs">⟳</span>
+					<span aria-hidden="true" class="animate-spin text-xs">⟳</span>
 					<span>Testing...</span>
 				{:else}
 					<span>Test Connection</span>
 				{/if}
 			</button>
 		</div>
-	</div>
+	</section>
 
-	<!-- Fleet Architecture & Telemetry Specs Card -->
-	<div class="glass-panel rounded-2xl p-5 shadow-xs space-y-4">
-		<div class="flex items-center justify-between border-b border-border-subtle pb-3">
+	<section aria-labelledby="telemetry-card-heading" class="glass-panel rounded-2xl p-5 shadow-xs space-y-4">
+		<div class="flex items-center justify-between border-b border-line pb-3">
 			<div class="flex items-center gap-2">
-				<span class="text-base">⚙️</span>
-				<h2 class="text-sm font-semibold text-text-primary">Storage & Architecture</h2>
+				<span aria-hidden="true" class="text-base">⚙️</span>
+				<h2 id="telemetry-card-heading" class="text-sm font-semibold text-heading">
+					Cache Telemetry
+				</h2>
 			</div>
-			<button
-				type="button"
-				onclick={() => copyText('41', 'priority')}
-				class="rounded bg-brand/10 hover:bg-brand/20 px-2 py-0.5 font-mono text-[10px] font-semibold {copyFailedId === 'priority' ? 'text-status-critical' : 'text-brand'} transition-colors cursor-pointer"
-				title="Click to copy priority"
-			>
-				{copiedId === 'priority' ? '✓ Copied' : copyFailedId === 'priority' ? 'Copy failed' : 'Priority 41'}
-			</button>
-		</div>
-
-		<div class="space-y-3 text-xs">
-			<div class="flex items-center justify-between">
-				<span class="text-text-muted">Host Machine</span>
-				<span class="font-medium font-mono text-text-primary">core-pi (10.85.48.120)</span>
-			</div>
-
-			<div class="flex items-center justify-between">
-				<span class="text-text-muted">Transport</span>
-				<span class="font-medium text-text-primary">NetBird Mesh + Caddy TLS</span>
-			</div>
-
-			<div class="flex items-center justify-between">
-				<span class="text-text-muted">Compression</span>
-				<span class="rounded bg-brand/10 px-1.5 py-0.5 font-mono text-brand font-semibold">zstd (level 8)</span>
-			</div>
-
-			<div class="flex items-center justify-between">
-				<span class="text-text-muted">NAR Threshold</span>
-				<span class="font-mono text-text-secondary">1 MiB (un-chunked)</span>
-			</div>
-
-			<div class="flex items-center justify-between">
-				<span class="text-text-muted">Average Chunk</span>
-				<span class="font-mono text-text-secondary">4 MiB</span>
-			</div>
-
-			{#if cacheName === 'system' && isKleinbemEndpoint}
-				<div class="border-t border-border-subtle pt-3 space-y-1.5">
-					<div class="flex items-center justify-between">
-						<span class="text-[11px] font-medium text-text-muted uppercase tracking-wider">
-							Public Key
-						</span>
-						<button
-							type="button"
-							onclick={() => copyText(systemPublicKey, 'pubkey')}
-							class="text-[10px] font-mono {copyFailedId === 'pubkey' ? 'text-status-critical' : 'text-brand'} hover:underline cursor-pointer"
-						>
-							{copiedId === 'pubkey' ? '✓ Copied' : copyFailedId === 'pubkey' ? 'Failed to copy' : 'Copy'}
-						</button>
-					</div>
-					<div class="rounded border border-border-subtle bg-bg-surface px-2 py-1 font-mono text-[10px] text-text-secondary break-all">
-						{systemPublicKey}
-					</div>
-				</div>
+			{#if cacheInfo}
+				<button
+					type="button"
+					onclick={() => clipboard.copy(String(cacheInfo.priority), 'priority')}
+					class="rounded bg-accent/10 hover:bg-accent/20 px-2 py-0.5 font-mono text-[10px] font-semibold {clipboard.failedId === 'priority' ? 'text-status-danger' : 'text-accent'} transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+					aria-label="Copy cache priority {cacheInfo.priority}"
+				>
+					{clipboard.copiedId === 'priority'
+						? '✓ Copied'
+						: clipboard.failedId === 'priority'
+							? 'Copy failed'
+							: `Priority ${cacheInfo.priority}`}
+				</button>
 			{/if}
-
-			<div class="border-t border-border-subtle pt-3">
-				<div class="text-[11px] font-medium text-text-muted mb-1.5 uppercase tracking-wider">
-					Upstream Public Proxies
-				</div>
-				<div class="flex flex-wrap gap-1.5">
-					{#each ['cache.nixos.org-1', 'nix-community.cachix.org-1', 'devenv.cachix.org-1', 'cache.nixos-cuda.org'] as proxy}
-						<button
-							type="button"
-							onclick={() => copyText(proxy, proxy)}
-							class="rounded-md border border-border-subtle bg-bg-surface hover:border-brand/40 px-2 py-0.5 font-mono text-[10px] {copiedId === proxy ? 'text-brand border-brand/60' : copyFailedId === proxy ? 'text-status-critical' : 'text-text-secondary hover:text-text-primary'} transition-colors cursor-pointer"
-							title="Click to copy {proxy}"
-						>
-							{copiedId === proxy ? '✓ Copied' : copyFailedId === proxy ? 'Copy failed' : proxy}
-						</button>
-					{/each}
-				</div>
-			</div>
-
-			<div class="border-t border-border-subtle pt-3">
-				<div class="text-[11px] font-medium text-text-muted mb-1 uppercase tracking-wider">
-					Retention & Reaper
-				</div>
-				<p class="text-[11px] text-text-secondary">
-					Weekly auto-reaper on Sunday 05:30 cleans unreferenced chunks and DB compaction.
-				</p>
-			</div>
 		</div>
-	</div>
+
+		<dl class="space-y-3 text-xs">
+			<div class="flex items-center justify-between gap-2">
+				<dt class="text-muted">Origin</dt>
+				<dd class="font-medium font-mono text-heading truncate">{parsedUrl?.host ?? '—'}</dd>
+			</div>
+
+			<div class="flex items-center justify-between gap-2">
+				<dt class="text-muted">Transport</dt>
+				<dd class="font-medium text-heading">{transportLabel}</dd>
+			</div>
+
+			<div class="flex items-center justify-between gap-2">
+				<dt class="text-muted">Routing Mode</dt>
+				<dd class="font-mono text-fg truncate">{cacheModeLabel}</dd>
+			</div>
+
+			<div class="flex items-center justify-between gap-2">
+				<dt class="text-muted">StoreDir</dt>
+				<dd class="font-mono text-fg">{cacheInfo?.storeDir ?? '—'}</dd>
+			</div>
+
+			<div class="flex items-center justify-between gap-2">
+				<dt class="text-muted">WantMassQuery</dt>
+				<dd class="font-mono text-fg">
+					{cacheInfo ? (cacheInfo.wantMassQuery ? '1 (enabled)' : '0 (disabled)') : '—'}
+				</dd>
+			</div>
+
+			{#each specEntries as [label, value] (label)}
+				<div class="flex items-center justify-between gap-2">
+					<dt class="text-muted">{label}</dt>
+					<dd class="font-mono text-fg truncate">{value}</dd>
+				</div>
+			{/each}
+		</dl>
+
+		{#if publicKey}
+			<div class="border-t border-line pt-3 space-y-1.5">
+				<div class="flex items-center justify-between">
+					<span class="text-[11px] font-medium text-muted uppercase tracking-wider">
+						Public Signing Key
+					</span>
+					<button
+						type="button"
+						onclick={() => clipboard.copy(publicKey, 'pubkey')}
+						class="text-[10px] font-mono {clipboard.failedId === 'pubkey' ? 'text-status-danger' : 'text-accent'} hover:underline cursor-pointer rounded px-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+					>
+						{clipboard.copiedId === 'pubkey'
+							? '✓ Copied'
+							: clipboard.failedId === 'pubkey'
+								? 'Failed to copy'
+								: 'Copy Key'}
+					</button>
+				</div>
+				<div class="rounded border border-line bg-bg px-2 py-1 font-mono text-[10px] text-fg break-all">
+					{publicKey}
+				</div>
+			</div>
+		{/if}
+	</section>
 </div>

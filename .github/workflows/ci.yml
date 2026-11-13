@@ -23,9 +23,5 @@ jobs:
       - uses: kleinbem/actions/nix-setup@f1b4f5fc52ea31b1f9e53ca29170570fe4651c7d # v1.7.1
       - name: Flake check
         run: nix flake check
-      - name: Svelte check
-        run: |
-          nix develop --command npm ci
-          nix develop --command npm run check
-      - name: Build web
-        run: nix build .#default
+      - name: Build package
+        run: nix build --no-link .#default

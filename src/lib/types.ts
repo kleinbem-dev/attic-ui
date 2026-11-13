@@ -1,9 +1,3 @@
-export interface CacheEndpointConfig {
-	url: string;
-	cacheName: string;
-	token?: string;
-}
-
 export interface NarInfo {
 	storePath: string;
 	url: string;
@@ -27,22 +21,32 @@ export interface CacheInfo {
 
 export type CacheStatus = 'healthy' | 'degraded' | 'down' | 'checking' | 'unknown';
 
-export interface CacheTelemetryData {
-	status: CacheStatus;
+export interface CachePreset {
+	label: string;
 	endpoint: string;
 	cacheName: string;
-	latencyMs: number | null;
-	authRequired: boolean;
-	authenticated: boolean;
-	errorMessage?: string;
-	upstreamCaches: string[];
-	chunking: {
-		narThreshold: string;
-		avgChunkSize: string;
-		compression: string;
-	};
-	retention: {
-		schedule: string;
-		reaperHost: string;
-	};
+}
+
+export interface SamplePath {
+	name: string;
+	hash: string;
+	description?: string;
+	group?: string;
+}
+
+export interface BreadcrumbItem {
+	hash: string;
+	label: string;
+}
+
+export interface RuntimeConfig {
+	subtitle?: string;
+	footer?: string;
+	defaultEndpoint?: string;
+	defaultCache?: string;
+	upstreamFallback?: boolean;
+	publicKeys?: Record<string, string>;
+	presets?: CachePreset[];
+	samples?: SamplePath[];
+	specs?: Record<string, string>;
 }

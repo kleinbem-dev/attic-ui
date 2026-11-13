@@ -4,32 +4,16 @@
 @import "@kleinbem/web-config/base.css";
 @import "@kleinbem/web-config/badges.css";
 
-/* App-level names for web-config's tokens; without these the bg-bg-*, text-text-*,
-   border-border-subtle, *-brand* and *-status-* utilities generate no CSS. */
-@theme inline {
-	--color-bg-surface: var(--color-bg);
-	--color-bg-elevated: var(--color-surface);
-	--color-text-primary: var(--color-heading);
-	--color-text-secondary: var(--color-fg);
-	--color-text-muted: var(--color-muted);
-	--color-border-subtle: var(--color-line);
-	--color-brand: var(--color-accent);
-	--color-brand-contrast: var(--color-accent-fg);
-	--color-status-healthy: var(--color-status-success);
-	--color-status-critical: var(--color-status-danger);
-}
-
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
 
-/* Glassmorphism utility for modern card and navbar styling */
 .glass-panel {
-	background: color-mix(in srgb, var(--color-bg-elevated, #18181b) 75%, transparent);
+	background: color-mix(in srgb, var(--color-surface) 78%, transparent);
 	backdrop-filter: blur(12px);
 	-webkit-backdrop-filter: blur(12px);
-	border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+	border: 1px solid var(--color-line);
 }
 
-.light .glass-panel, [data-theme="light"] .glass-panel {
-	background: color-mix(in srgb, #ffffff 80%, transparent);
-	border: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.06));
+.light .glass-panel,
+[data-theme="light"] .glass-panel {
+	background: color-mix(in srgb, #ffffff 82%, transparent);
 }

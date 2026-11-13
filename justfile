@@ -13,6 +13,10 @@ build:
 check:
     npm run check
 
+# Run unit and integration tests
+test:
+    npm test
+
 # Preview production build locally
 preview:
     npm run preview
