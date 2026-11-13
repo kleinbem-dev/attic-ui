@@ -11,11 +11,11 @@ export const PUBLIC_NIXOS_CACHE = 'https://cache.nixos.org';
 export const PUBLIC_NIXOS_KEY =
 	'cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=';
 
-// Leaf packages outside stdenv/nodejs so Nix's hash scanner keeps allowedReferences = [].
+// Leaf packages outside stdenv/fetchFromGitHub/nodejs so Nix FOD and allowedReferences = [] stay clean.
 export const DEFAULT_UPSTREAM_SAMPLES: SamplePath[] = [
 	{ name: 'hello-2.12.3', hash: 'sd779x86bjaqxj2lzh2jsir4h0zjz6d1', group: 'Upstream' },
 	{ name: 'ripgrep-15.2.0', hash: 'whbrk657qmih065xal60m4khwf6cb9pj', group: 'Upstream' },
-	{ name: 'curl-8.22.0', hash: '5lpg7j8y8lf8c4zv318yi4rmgyn5yhip', group: 'Upstream' }
+	{ name: 'fd-10.5.1', hash: 'p7m1rnj0fm1nm9hwwj9vrgy3fc7grgg2', group: 'Upstream' }
 ];
 
 const WITHHELD_MSG = 'Token not sent over plain HTTP: use an https:// endpoint';
