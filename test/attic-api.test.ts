@@ -546,6 +546,35 @@ describe('Target resolution, presets, public keys, and breadcrumb state', () => 
 		assert.equal(resolvePublicKey('https://attic.example.org', 'prod', keys), 'prod:keyB=');
 		assert.equal(resolvePublicKey('https://attic.example.org', 'system', keys), 'system:keyA=');
 		assert.equal(resolvePublicKey('https://attic.example.org', 'other', keys), null);
+		// Object.prototype property names must never leak functions as signing keys
+		assert.equal(resolvePublicKey('https://attic.example.org', 'constructor', keys), null);
+		assert.equal(resolvePublicKey('https://attic.example.org', 'toString', keys), null);
+	});
+
+	it('canonicalizes schemeless-slash URLs, deduplicates configured presets, and resolves relative snippet URLs', () => {
+		assert.equal(resolveEndpoint('https:cache-a.example.org/'), 'https://cache-a.example.org');
+		assert.equal(resolveEndpoint('/proxy-cache/', 'http://localhost:4173'), '/proxy-cache');
+
+		const dupPresets = buildPresets(
+			{
+				presets: [
+					{ label: 'One', endpoint: 'https://a.example.org', cacheName: 'main' },
+					{ label: 'Dup', endpoint: 'https://a.example.org', cacheName: 'main' }
+				]
+			},
+			'http://localhost:4173'
+		);
+		assert.equal(dupPresets.filter((p) => p.endpoint === 'https://a.example.org').length, 1);
+
+		const relSnippets = buildClientSnippets(
+			'/proxy-cache',
+			'my cache',
+			null,
+			'http://localhost:4173'
+		);
+		assert.equal(relSnippets.cacheUrl, 'http://localhost:4173/proxy-cache/my%20cache');
+		assert.match(relSnippets.cli, /attic login localhost http:\/\/localhost:4173\/proxy-cache/);
+		assert.match(relSnippets.cli, /'localhost:my cache'/);
 	});
 
 	it('appends, rewinds, and caps closure breadcrumb history cleanly', () => {

@@ -14,10 +14,11 @@ buildNpmPackage (finalAttrs: {
     owner = "kleinbem-dev";
     repo = "attic-ui";
     tag = "v${finalAttrs.version}";
+    # Placeholder until release tag v0.1.0 is published; flake.nix overrides src locally.
     hash = lib.fakeHash;
   };
 
-  npmDepsHash = "sha256-Acl6EKE2qWOgz6157ZyKnOlaAHLalTaqC9claZn7Kd8=";
+  npmDepsHash = "sha256-czKPAWFx+bMvsDd3ChQ2cXNWHgAQo5/ZfQcAHua3Q+c=";
   # npm 11 creates _cacache/tmp when installing git dependencies from the offline cache.
   makeCacheWritable = true;
 

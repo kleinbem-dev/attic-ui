@@ -69,8 +69,10 @@ export function endpointOrigin(endpoint: string, baseOrigin = defaultBaseOrigin(
  */
 export function resolveEndpoint(endpoint: string, baseOrigin = defaultBaseOrigin()): string {
 	const trimmed = endpoint.trim();
-	if (!parseEndpointUrl(trimmed, baseOrigin)) return '';
-	return trimmed.replace(/\/+$/, '');
+	const parsed = parseEndpointUrl(trimmed, baseOrigin);
+	if (!parsed) return '';
+	const canonical = trimmed.startsWith('/') ? trimmed : parsed.href;
+	return canonical.replace(/\/+$/, '');
 }
 
 /**
@@ -373,6 +375,27 @@ export interface StorageLike {
 	removeItem(key: string): void;
 }
 
+const noopStorage: StorageLike = {
+	getItem: () => null,
+	setItem: () => {},
+	removeItem: () => {}
+};
+
+/**
+ * Safely acquires window.localStorage without throwing when browser policy blocks Web Storage.
+ */
+export function getBrowserStorage(): StorageLike {
+	try {
+		return typeof window !== 'undefined' && window.localStorage ? window.localStorage : noopStorage;
+	} catch {
+		return noopStorage;
+	}
+}
+
+function ownString(record: Record<string, string>, key: string): string | undefined {
+	return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
+}
+
 const TOKENS_KEY = 'attic-tokens';
 
 function readTokenMap(storage: StorageLike, baseOrigin?: string): Record<string, string> {
@@ -414,7 +437,7 @@ export function loadTokenForEndpoint(
 	const origin = endpointOrigin(endpoint, baseOrigin);
 	if (!origin || isPublicNixCache(endpoint)) return '';
 	const map = readTokenMap(storage, baseOrigin);
-	return map[origin] ?? '';
+	return ownString(map, origin) ?? '';
 }
 
 /**
@@ -468,13 +491,17 @@ export interface ClientSnippets {
 export function buildClientSnippets(
 	endpoint: string,
 	cacheName: string,
-	publicKey?: string | null
+	publicKey?: string | null,
+	baseOrigin = defaultBaseOrigin()
 ): ClientSnippets {
-	const cleanEndpoint = resolveEndpoint(endpoint) || PUBLIC_NIXOS_CACHE;
-	const trimmedCache = sanitizeTokenWord(cacheName.trim());
+	const parsedEndpoint = parseEndpointUrl(endpoint, baseOrigin);
+	const cleanEndpoint = parsedEndpoint ? parsedEndpoint.href.replace(/\/+$/, '') : PUBLIC_NIXOS_CACHE;
+	const trimmedCache = cacheName.trim();
 	const isNixosOrg = isPublicNixCache(cleanEndpoint);
 	const cacheUrl =
-		isNixosOrg || !trimmedCache ? cleanEndpoint : `${cleanEndpoint}/${trimmedCache}`;
+		isNixosOrg || !trimmedCache
+			? cleanEndpoint
+			: `${cleanEndpoint}/${encodeURIComponent(trimmedCache)}`;
 	const cleanKey = publicKey ? sanitizeTokenWord(publicKey.trim()) : '';
 
 	if (isNixosOrg) {
@@ -627,8 +654,14 @@ export function buildPresets(
 	runtimeConfig: RuntimeConfig,
 	locationOrigin = defaultBaseOrigin()
 ): CachePreset[] {
-	const list: CachePreset[] = [...(runtimeConfig.presets ?? [])];
-	const seen = new Set(list.map((p) => `${p.endpoint}::${p.cacheName}`));
+	const list: CachePreset[] = [];
+	const seen = new Set<string>();
+	for (const p of runtimeConfig.presets ?? []) {
+		const key = `${p.endpoint}::${p.cacheName}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		list.push(p);
+	}
 
 	const originUrl = locationOrigin ? parseEndpointUrl(locationOrigin) : null;
 	if (originUrl && !isLoopbackHost(originUrl.hostname) && !isPublicNixCache(originUrl.origin)) {
@@ -737,10 +770,10 @@ export function resolvePublicKey(
 	const cleanCache = cacheName.trim();
 	const fullUrl = cleanEp && cleanCache ? `${cleanEp}/${cleanCache}` : cleanEp;
 	return (
-		(fullUrl ? publicKeys[fullUrl] : undefined) ??
-		(cleanCache ? publicKeys[cleanCache] : undefined) ??
-		(cleanEp ? publicKeys[cleanEp] : undefined) ??
-		publicKeys['*'] ??
+		(fullUrl ? ownString(publicKeys, fullUrl) : undefined) ??
+		(cleanCache ? ownString(publicKeys, cleanCache) : undefined) ??
+		(cleanEp ? ownString(publicKeys, cleanEp) : undefined) ??
+		ownString(publicKeys, '*') ??
 		null
 	);
 }

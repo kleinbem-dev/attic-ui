@@ -15,6 +15,7 @@
 		endpointOrigin,
 		extractStoreHash,
 		fetchNarInfo,
+		getBrowserStorage,
 		isPublicNixCache,
 		loadRuntimeConfig,
 		loadTokenForEndpoint,
@@ -174,12 +175,13 @@
 	});
 
 	function persistTarget(nextEndpoint: string, nextCache: string): void {
+		const storage = getBrowserStorage();
 		try {
 			const cleanEp = resolveEndpoint(nextEndpoint);
-			if (cleanEp) localStorage.setItem('attic-endpoint', cleanEp);
-			localStorage.setItem('attic-cache', nextCache);
+			if (cleanEp) storage.setItem('attic-endpoint', cleanEp);
+			storage.setItem('attic-cache', nextCache);
 		} catch {
-			// Ignore private-browsing storage errors.
+			// Ignore quota storage errors.
 		}
 	}
 
@@ -199,7 +201,7 @@
 
 	function handleEndpointChange(nextEndpoint: string): void {
 		if (endpointOrigin(nextEndpoint) !== endpointOrigin(endpoint)) {
-			token = loadTokenForEndpoint(localStorage, nextEndpoint);
+			token = loadTokenForEndpoint(getBrowserStorage(), nextEndpoint);
 		}
 		endpoint = nextEndpoint;
 		persistTarget(nextEndpoint, cacheName);
@@ -214,13 +216,13 @@
 
 	function handleTokenChange(nextToken: string): void {
 		token = nextToken;
-		saveTokenForEndpoint(localStorage, endpoint, nextToken);
+		saveTokenForEndpoint(getBrowserStorage(), endpoint, nextToken);
 		scheduleRetest();
 	}
 
 	function handleSelectPreset(preset: CachePreset): void {
 		if (endpointOrigin(preset.endpoint) !== endpointOrigin(endpoint)) {
-			token = loadTokenForEndpoint(localStorage, preset.endpoint);
+			token = loadTokenForEndpoint(getBrowserStorage(), preset.endpoint);
 		}
 		endpoint = preset.endpoint;
 		cacheName = preset.cacheName;
@@ -368,10 +370,11 @@
 			runtimeConfig = cfg;
 
 			const params = new URLSearchParams(window.location.search);
-			const initial = resolveInitialTarget(params, localStorage, cfg, window.location.origin);
+			const storage = getBrowserStorage();
+			const initial = resolveInitialTarget(params, storage, cfg, window.location.origin);
 			endpoint = initial.endpoint;
 			cacheName = initial.cacheName;
-			token = loadTokenForEndpoint(localStorage, initial.endpoint, window.location.origin);
+			token = loadTokenForEndpoint(storage, initial.endpoint, window.location.origin);
 
 			const initialPath =
 				params.get('path') || cfg.samples?.[0]?.hash || DEFAULT_UPSTREAM_SAMPLES[0].hash;

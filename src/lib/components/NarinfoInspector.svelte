@@ -364,7 +364,7 @@
 						{#if narInfo.sig && narInfo.sig.length > 0}
 							<div>
 								<span class="text-muted block text-[10px] uppercase tracking-wider font-sans">Signatures</span>
-								{#each narInfo.sig as sig (sig)}
+								{#each narInfo.sig as sig, i (`${i}:${sig}`)}
 									<div class="text-fg break-all">{sig}</div>
 								{/each}
 							</div>
@@ -378,11 +378,11 @@
 								<span class="text-[10px] font-normal text-muted">Select any dependency to inspect</span>
 							</div>
 							<div class="max-h-48 overflow-y-auto rounded-xl border border-line bg-bg p-2 divide-y divide-line font-mono text-[11px]">
-								{#each narInfo.references as ref (ref)}
+								{#each narInfo.references as ref, i (`${i}:${ref}`)}
 									{@const fullRef = formatStoreEntry(ref)}
 									<button
 										type="button"
-										onclick={() => selectHash(fullRef)}
+										onclick={() => selectHash(ref)}
 										class="w-full text-left py-1.5 px-2 hover:bg-surface text-fg hover:text-accent transition-colors rounded cursor-pointer truncate block focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 										title={`Inspect ${fullRef}`}
 									>
