@@ -14,8 +14,7 @@ buildNpmPackage (finalAttrs: {
     owner = "kleinbem-dev";
     repo = "attic-ui";
     tag = "v${finalAttrs.version}";
-    # Placeholder until release tag v0.1.0 is published; flake.nix overrides src locally.
-    hash = lib.fakeHash;
+    hash = "sha256-woIULw/zSGgHmh6hZ/s4q/4xcUColTskWosdUs0nzvg=";
   };
 
   npmDepsHash = "sha256-czKPAWFx+bMvsDd3ChQ2cXNWHgAQo5/ZfQcAHua3Q+c=";
