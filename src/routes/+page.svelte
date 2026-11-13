@@ -1,332 +1,495 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
+	import CommandPalette from '@kleinbem/web-config/components/CommandPalette';
+	import type { CommandItem } from '@kleinbem/web-config/components/CommandPalette';
+	import { theme } from '@kleinbem/web-config/theme/state';
 	import Header from '#lib/components/Header.svelte';
 	import CacheTelemetry from '#lib/components/CacheTelemetry.svelte';
 	import NarinfoInspector from '#lib/components/NarinfoInspector.svelte';
-	import ClientConfig from '#lib/components/ClientConfig.svelte';
-	import { queryCacheInfo, fetchNarInfo, tokenWithheld, extractStoreHash } from '#lib/attic-api';
-	import type { NarInfo, CacheStatus } from '#lib/types';
+	import ClientConfig, { type ConfigTab } from '#lib/components/ClientConfig.svelte';
+	import { ClipboardFeedback } from '#lib/clipboard.svelte';
+	import {
+		buildClientSnippets,
+		buildPresets,
+		DEFAULT_UPSTREAM_SAMPLES,
+		endpointOrigin,
+		extractStoreHash,
+		fetchNarInfo,
+		getBrowserStorage,
+		isPublicNixCache,
+		loadRuntimeConfig,
+		loadTokenForEndpoint,
+		PUBLIC_NIXOS_CACHE,
+		queryCacheInfo,
+		resolveEndpoint,
+		resolveInitialTarget,
+		resolvePublicKey,
+		saveTokenForEndpoint,
+		tokenWithheld,
+		updateBreadcrumbTrail
+	} from '#lib/attic-api';
+	import type {
+		BreadcrumbItem,
+		CacheInfo,
+		CachePreset,
+		CacheStatus,
+		NarInfo,
+		RuntimeConfig,
+		SamplePath
+	} from '#lib/types';
 
-	let endpoint = $state('https://attic.kleinbem.dev');
-	let cacheName = $state('system');
+	let runtimeConfig = $state.raw<RuntimeConfig>({});
+	let endpoint = $state(PUBLIC_NIXOS_CACHE);
+	let cacheName = $state('');
 	let token = $state('');
 	let status = $state<CacheStatus>('unknown');
 	let latencyMs = $state<number | null>(null);
+	let cacheInfo = $state.raw<CacheInfo | null>(null);
 	let errorMessage = $state('');
 	let isPrivateNotice = $state(false);
 
-	let activeNarInfo = $state<NarInfo | null>(null);
+	let activeNarInfo = $state.raw<NarInfo | null>(null);
 	let isInspecting = $state(false);
 	let inspectorError = $state('');
 	let inspectionSource = $state('');
-	let inspectedEndpoint = $state('');
-	let inspectedCacheName = $state('');
+	let inspectedTarget = $state.raw<{ endpoint: string; cacheName: string } | null>(null);
+	let historyTrail = $state.raw<BreadcrumbItem[]>([]);
 
-	// Bumped per test so results of tests for older settings are dropped.
-	let testRun = 0;
-	let inspectRun = 0;
+	let configTab = $state<ConfigTab>('nixos');
+	let commandPaletteOpen = $state(false);
+	let inspectorRef = $state<ReturnType<typeof NarinfoInspector> | null>(null);
 
-	async function testConnection() {
-		const run = ++testRun;
-		errorMessage = '';
-		isPrivateNotice = false;
-		status = 'checking';
-		const res = await queryCacheInfo(endpoint, cacheName, token);
-		if (run !== testRun) return;
-		latencyMs = res.latencyMs;
+	let mountController: AbortController | null = null;
+	let testController: AbortController | null = null;
+	let inspectController: AbortController | null = null;
+	let retestTimer: ReturnType<typeof setTimeout> | null = null;
 
-		if (res.ok) {
-			status = 'healthy';
-			isPrivateNotice = false;
-		} else if (res.status === 401) {
-			if (token.trim()) {
-				// A token was supplied but rejected by the cache
-				status = 'down';
-				isPrivateNotice = false;
-				errorMessage = tokenWithheld(endpoint, token)
-					? (res.error || '')
-					: 'Authentication failed: Token was rejected by the cache';
-			} else {
-				// Anonymous request to private cache: normal operational state
-				status = 'healthy';
-				isPrivateNotice = true;
-				errorMessage = tokenWithheld(endpoint, token) ? (res.error || '') : '';
+	const paletteClipboard = new ClipboardFeedback();
+
+	onDestroy(() => {
+		mountController?.abort();
+		testController?.abort();
+		inspectController?.abort();
+		if (retestTimer) clearTimeout(retestTimer);
+		paletteClipboard.destroy();
+	});
+
+	const presets = $derived(buildPresets(runtimeConfig));
+	const publicKey = $derived(resolvePublicKey(endpoint, cacheName, runtimeConfig.publicKeys));
+	const activeCacheLabel = $derived(
+		isPublicNixCache(endpoint) ? 'cache.nixos.org' : cacheName.trim() || 'root'
+	);
+
+	const samples = $derived.by((): SamplePath[] => {
+		const combined = [...(runtimeConfig.samples ?? []), ...DEFAULT_UPSTREAM_SAMPLES];
+		const seen = new Set<string>();
+		return combined.filter((item) => {
+			if (seen.has(item.hash)) return false;
+			seen.add(item.hash);
+			return true;
+		});
+	});
+
+	const commandItems = $derived.by((): CommandItem[] => {
+		const snippets = buildClientSnippets(endpoint, cacheName, publicKey);
+		const presetItems: CommandItem[] = presets.map((preset) => ({
+			id: `preset-${preset.endpoint}-${preset.cacheName}`,
+			title: `Switch Cache: ${preset.label}${preset.cacheName ? ` / ${preset.cacheName}` : ''}`,
+			subtitle: preset.endpoint,
+			category: 'Presets',
+			icon: '🗄️',
+			onSelect: () => handleSelectPreset(preset)
+		}));
+
+		return [
+			{
+				id: 'inspect-path',
+				title: 'Inspect Nix Store Path',
+				category: 'Actions',
+				icon: '🔍',
+				onSelect: () => queueMicrotask(() => inspectorRef?.focusSearch())
+			},
+			{
+				id: 'test-connection',
+				title: 'Test Binary Cache Connection',
+				category: 'Actions',
+				icon: '⚡',
+				onSelect: () => void testConnection()
+			},
+			...presetItems,
+			{
+				id: 'copy-nixos',
+				title: 'Copy NixOS substituters configuration',
+				category: 'Configuration',
+				icon: '📋',
+				badge: 'NixOS',
+				onSelect: () => {
+					configTab = 'nixos';
+					void paletteClipboard.copy(snippets.nixos, 'NixOS snippet');
+				}
+			},
+			{
+				id: 'copy-nixconf',
+				title: 'Copy nix.conf substituters',
+				category: 'Configuration',
+				icon: '📄',
+				badge: 'nix.conf',
+				onSelect: () => {
+					configTab = 'nixconf';
+					void paletteClipboard.copy(snippets.nixconf, 'nix.conf snippet');
+				}
+			},
+			{
+				id: 'copy-cli',
+				title: 'Copy Attic CLI commands',
+				category: 'Configuration',
+				icon: '💻',
+				badge: 'CLI',
+				onSelect: () => {
+					configTab = 'cli';
+					void paletteClipboard.copy(snippets.cli, 'CLI snippet');
+				}
+			},
+			{
+				id: 'theme-dark',
+				title: 'Switch to Dark Theme',
+				category: 'Preferences',
+				icon: '🌙',
+				onSelect: () => theme.set('dark')
+			},
+			{
+				id: 'theme-light',
+				title: 'Switch to Light Theme',
+				category: 'Preferences',
+				icon: '☀️',
+				onSelect: () => theme.set('light')
+			},
+			{
+				id: 'theme-system',
+				title: 'Follow System Theme',
+				category: 'Preferences',
+				icon: '🖥️',
+				onSelect: () => theme.set('system')
 			}
-		} else {
-			status = 'down';
-			isPrivateNotice = false;
-			errorMessage = res.error || `HTTP ${res.status}`;
+		];
+	});
+
+	function persistTarget(nextEndpoint: string, nextCache: string): void {
+		const storage = getBrowserStorage();
+		try {
+			const cleanEp = resolveEndpoint(nextEndpoint);
+			if (cleanEp) storage.setItem('attic-endpoint', cleanEp);
+			storage.setItem('attic-cache', nextCache);
+		} catch {
+			// Ignore quota storage errors.
 		}
 	}
 
-	async function inspectPath(hashOrPath: string) {
-		const run = ++inspectRun;
+	function scheduleRetest(): void {
+		testController?.abort();
+		if (retestTimer) clearTimeout(retestTimer);
+		status = 'unknown';
+		latencyMs = null;
+		cacheInfo = null;
+		errorMessage = '';
+		isPrivateNotice = false;
+		retestTimer = setTimeout(() => {
+			retestTimer = null;
+			void testConnection();
+		}, 500);
+	}
+
+	function handleEndpointChange(nextEndpoint: string): void {
+		if (endpointOrigin(nextEndpoint) !== endpointOrigin(endpoint)) {
+			token = loadTokenForEndpoint(getBrowserStorage(), nextEndpoint);
+		}
+		endpoint = nextEndpoint;
+		persistTarget(nextEndpoint, cacheName);
+		scheduleRetest();
+	}
+
+	function handleCacheNameChange(nextCache: string): void {
+		cacheName = nextCache;
+		persistTarget(endpoint, nextCache);
+		scheduleRetest();
+	}
+
+	function handleTokenChange(nextToken: string): void {
+		token = nextToken;
+		saveTokenForEndpoint(getBrowserStorage(), endpoint, nextToken);
+		scheduleRetest();
+	}
+
+	function handleSelectPreset(preset: CachePreset): void {
+		if (endpointOrigin(preset.endpoint) !== endpointOrigin(endpoint)) {
+			token = loadTokenForEndpoint(getBrowserStorage(), preset.endpoint);
+		}
+		endpoint = preset.endpoint;
+		cacheName = preset.cacheName;
+		persistTarget(preset.endpoint, preset.cacheName);
+		void testConnection();
+	}
+
+	async function testConnection(): Promise<void> {
+		if (retestTimer) {
+			clearTimeout(retestTimer);
+			retestTimer = null;
+		}
+		testController?.abort();
+		const controller = new AbortController();
+		testController = controller;
+
+		errorMessage = '';
+		isPrivateNotice = false;
+		cacheInfo = null;
+		status = 'checking';
+
+		const res = await queryCacheInfo(endpoint, cacheName, token, controller.signal);
+		if (controller.signal.aborted) return;
+
+		latencyMs = res.latencyMs;
+		cacheInfo = res.info ?? null;
+
+		if (res.ok) {
+			status = 'healthy';
+		} else if (res.status === 401) {
+			if (token.trim()) {
+				status = 'down';
+				errorMessage = tokenWithheld(endpoint, token)
+					? (res.error ?? '')
+					: 'Authentication failed: Bearer token was rejected by the cache';
+			} else {
+				status = 'healthy';
+				isPrivateNotice = true;
+			}
+		} else {
+			status = 'down';
+			errorMessage = res.error ?? `HTTP ${res.status}`;
+		}
+	}
+
+	async function inspectPath(hashOrPath: string, syncHistory = true): Promise<void> {
+		inspectController?.abort();
+		const controller = new AbortController();
+		inspectController = controller;
+
 		isInspecting = true;
 		inspectorError = '';
 		inspectionSource = '';
 		activeNarInfo = null;
+
 		const targetEndpoint = endpoint;
 		const targetCache = cacheName;
 		const targetToken = token;
 
 		try {
-			let res = await fetchNarInfo(targetEndpoint, targetCache, hashOrPath, targetToken);
-			if (run !== inspectRun) return;
+			let res = await fetchNarInfo(
+				targetEndpoint,
+				targetCache,
+				hashOrPath,
+				targetToken,
+				controller.signal
+			);
+			if (controller.signal.aborted) return;
 
 			let effectiveEndpoint = targetEndpoint;
 			let effectiveCache = targetCache;
-			let source = targetEndpoint;
-			// no-link: Attic skips caching upstream paths signed by public cache keys (upstreamCacheKeyNames).
-			const isKleinbemCache = (() => {
-				try {
-					const host = new URL(targetEndpoint).hostname;
-					return host === 'attic.kleinbem.dev' || host === 'cache.kleinbem.dev' || host.endsWith('.kleinbem.dev');
-				} catch {
-					return false;
-				}
-			})();
-			if (!res.ok && res.status === 404 && isKleinbemCache) {
-				const fallback = await fetchNarInfo('https://cache.nixos.org', '', hashOrPath);
-				if (run !== inspectRun) return;
+			let source = resolveEndpoint(targetEndpoint) || targetEndpoint;
+
+			// Attic servers configured with upstreamCacheKeyNames omit upstream NixOS paths locally.
+			if (
+				!res.ok &&
+				res.status === 404 &&
+				!isPublicNixCache(targetEndpoint) &&
+				runtimeConfig.upstreamFallback !== false
+			) {
+				const fallback = await fetchNarInfo(
+					PUBLIC_NIXOS_CACHE,
+					'',
+					hashOrPath,
+					undefined,
+					controller.signal
+				);
+				if (controller.signal.aborted) return;
 				if (fallback.ok && fallback.data) {
 					res = fallback;
-					source = 'cache.nixos.org (upstream public)';
-					effectiveEndpoint = 'https://cache.nixos.org';
+					source = 'cache.nixos.org (upstream fallback)';
+					effectiveEndpoint = PUBLIC_NIXOS_CACHE;
 					effectiveCache = '';
 				}
 			}
 
-			if (run !== inspectRun) return;
-
 			if (res.ok && res.data) {
 				activeNarInfo = res.data;
 				inspectionSource = source;
-				inspectedEndpoint = effectiveEndpoint;
-				inspectedCacheName = effectiveCache;
-				if (typeof window !== 'undefined' && window.location) {
+				inspectedTarget = { endpoint: effectiveEndpoint, cacheName: effectiveCache };
+				historyTrail = updateBreadcrumbTrail(historyTrail, res.data.storePath);
+
+				if (syncHistory) {
 					try {
 						const url = new URL(window.location.href);
-						const hash = extractStoreHash(hashOrPath);
+						const hash = extractStoreHash(res.data.storePath);
 						if (hash && url.searchParams.get('path') !== hash) {
 							url.searchParams.set('path', hash);
 							window.history.replaceState({}, '', url.toString());
 						}
-					} catch (e) {}
+					} catch {
+						// Ignore history errors in restricted frames.
+					}
 				}
 			} else if (res.status === 401) {
-				inspectorError = 'Private fleet closure. Paste your bearer token in the Cache Endpoint card above to view this path.';
+				inspectorError = tokenWithheld(targetEndpoint, targetToken)
+					? (res.error ?? '')
+					: 'Private binary cache path. Enter a bearer token in Cache Endpoint above to inspect this closure.';
 			} else {
-				inspectorError = res.error || 'Failed to inspect path';
+				inspectorError = res.error ?? 'Failed to inspect path';
 			}
 		} catch (err: unknown) {
-			if (run !== inspectRun) return;
+			if (controller.signal.aborted) return;
 			inspectorError = err instanceof Error ? err.message : 'Network error querying cache';
 		} finally {
-			if (run === inspectRun) {
+			if (!controller.signal.aborted) {
 				isInspecting = false;
 			}
 		}
 	}
 
 	onMount(() => {
-		try {
-			const params = new URLSearchParams(window.location.search);
-			const urlEndpoint = params.get('endpoint');
-			const urlPreset = params.get('preset');
+		const controller = new AbortController();
+		mountController = controller;
 
-			if (urlPreset === 'cache.kleinbem.dev' || urlEndpoint === 'https://cache.kleinbem.dev') {
-				endpoint = 'https://cache.kleinbem.dev';
-				cacheName = '';
-			} else if (urlPreset === 'attic.kleinbem.dev' || urlEndpoint === 'https://attic.kleinbem.dev') {
-				endpoint = 'https://attic.kleinbem.dev';
-				cacheName = 'system';
-				const urlCache = params.get('cache');
-				if (urlCache !== null) cacheName = urlCache;
-			} else if (urlPreset === 'cache.nixos.org' || urlEndpoint === 'https://cache.nixos.org') {
-				endpoint = 'https://cache.nixos.org';
-				cacheName = '';
-			} else if (urlEndpoint) {
-				endpoint = urlEndpoint;
-				const urlCache = params.get('cache');
-				if (urlCache !== null) cacheName = urlCache;
-			} else {
-				const savedEndpoint = localStorage.getItem('attic-endpoint');
-				const isLegacy = (() => {
-					try {
-						return savedEndpoint ? new URL(savedEndpoint).hostname === 'cache.kleinbem.dev' : false;
-					} catch {
-						return false;
-					}
-				})();
-
-				if (savedEndpoint && !isLegacy) {
-					endpoint = savedEndpoint;
-				} else {
-					// Default canonical endpoint: attic.kleinbem.dev
-					endpoint = 'https://attic.kleinbem.dev';
-					try {
-						localStorage.setItem('attic-endpoint', endpoint);
-					} catch (e) {}
-				}
-
-				const savedCache = localStorage.getItem('attic-cache');
-				if (savedCache) cacheName = savedCache;
-			}
-
-			const savedToken = localStorage.getItem('attic-token');
-			if (savedToken) {
-				const selectedOrigin = (() => {
-					try {
-						return new URL(endpoint).origin;
-					} catch {
-						return '';
-					}
-				})();
-				const tokenOrigin = localStorage.getItem('attic-token-origin') || '';
-				// Token must only be restored if the selected endpoint matches the origin where the token was entered,
-				// or if legacy migration with no tokenOrigin matches the page origin or canonical fleet origin.
-				const isTrustedOrigin = tokenOrigin
-					? selectedOrigin === tokenOrigin
-					: (selectedOrigin === window.location.origin || selectedOrigin === 'https://attic.kleinbem.dev');
-
-				if (isTrustedOrigin) {
-					token = savedToken;
-				}
-			}
-		} catch (e) {}
-
-		testConnection();
-
-		// Auto-populate inspector on first visit so the explorer is never empty
-		if (!activeNarInfo) {
-			try {
-				const params = new URLSearchParams(window.location.search);
-				const urlPath = params.get('path');
-				inspectPath(urlPath || '9l0j15jg8634hkb6d4c9y95mpxl0nhrd');
-			} catch {
-				inspectPath('9l0j15jg8634hkb6d4c9y95mpxl0nhrd');
-			}
-		}
-
-		const listener = () => testConnection();
-		window.addEventListener('attic:test-connection', listener);
-		return () => {
-			window.removeEventListener('attic:test-connection', listener);
+		const handlePopState = () => {
+			const pathParam = new URLSearchParams(window.location.search).get('path');
+			if (pathParam) void inspectPath(pathParam, false);
 		};
-	});
+		window.addEventListener('popstate', handlePopState);
 
-	// Retest shortly after the connection settings change, so the status never describes old ones.
-	let mounted = false;
-	let prevEndpoint = '';
-	$effect(() => {
-		const endpointChanged = mounted && prevEndpoint !== endpoint;
-		prevEndpoint = endpoint;
-		cacheName;
-		token;
-		if (!mounted) {
-			mounted = true;
-			return;
-		}
+		void (async () => {
+			const cfg = await loadRuntimeConfig(controller.signal);
+			if (controller.signal.aborted) return;
+			runtimeConfig = cfg;
 
-		// When switching endpoint to the origin matching the saved token, restore it
-		if (endpointChanged && !token.trim()) {
-			try {
-				const origin = new URL(endpoint).origin;
-				const savedOrigin = localStorage.getItem('attic-token-origin') || '';
-				const isMatch = savedOrigin
-					? origin === savedOrigin
-					: (origin === window.location.origin || origin === 'https://attic.kleinbem.dev');
-				if (isMatch) {
-					const saved = localStorage.getItem('attic-token');
-					if (saved) token = saved;
-				}
-			} catch (e) {}
-		}
+			const params = new URLSearchParams(window.location.search);
+			const storage = getBrowserStorage();
+			const initial = resolveInitialTarget(params, storage, cfg, window.location.origin);
+			endpoint = initial.endpoint;
+			cacheName = initial.cacheName;
+			token = loadTokenForEndpoint(storage, initial.endpoint, window.location.origin);
 
-		testRun++; // drop results of tests started for the old settings
-		status = 'unknown';
-		latencyMs = null;
-		const timer = setTimeout(testConnection, 600);
-		return () => clearTimeout(timer);
-	});
+			const initialPath =
+				params.get('path') || cfg.samples?.[0]?.hash || DEFAULT_UPSTREAM_SAMPLES[0].hash;
+			void testConnection();
+			void inspectPath(initialPath, Boolean(params.get('path')));
+		})();
 
-	let lastEndpoint = '';
-	$effect(() => {
-		try {
-			localStorage.setItem('attic-endpoint', endpoint);
-			localStorage.setItem('attic-cache', cacheName);
-			if (token.trim()) {
-				try {
-					const origin = new URL(endpoint).origin;
-					localStorage.setItem('attic-token', token);
-					localStorage.setItem('attic-token-origin', origin);
-				} catch (e) {}
-			} else if (mounted && lastEndpoint === endpoint) {
-				// User explicitly cleared the token for this endpoint, remove it
-				localStorage.removeItem('attic-token');
-				localStorage.removeItem('attic-token-origin');
-			}
-			lastEndpoint = endpoint;
-		} catch (e) {}
+		return () => {
+			window.removeEventListener('popstate', handlePopState);
+			controller.abort();
+		};
 	});
 </script>
 
-<Header {status} {latencyMs} />
+<Header
+	{status}
+	{latencyMs}
+	subtitle={runtimeConfig.subtitle}
+	onOpenCommandPalette={() => (commandPaletteOpen = true)}
+/>
 
-<main class="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-	<!-- Hero Intro Banner -->
-	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-6">
+<main
+	id="main-content"
+	class="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 lg:px-8 py-8 space-y-8"
+>
+	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-line pb-6">
 		<div>
-			<h2 class="text-2xl font-bold tracking-tight text-text-primary">
+			<h2 class="text-2xl font-bold tracking-tight text-heading">
 				Deduplicated Binary Cache Explorer
 			</h2>
-			<p class="text-sm text-text-muted mt-1">
-				Real-time monitoring, store closure inspection, and client configurations for Attic.
+			<p class="text-sm text-muted mt-1">
+				Live cache metadata, Nix store closure inspection, and client setup snippets for Attic.
 			</p>
 		</div>
 
 		<div class="flex items-center gap-2 text-xs">
-			<span class="rounded-full bg-brand/10 border border-brand/20 px-3 py-1 font-mono text-brand">
-				Active Cache: {cacheName}
+			<span class="rounded-full bg-accent/10 border border-accent/20 px-3 py-1 font-mono text-accent">
+				Active Cache: {activeCacheLabel}
 			</span>
 		</div>
 	</div>
 
-	<!-- Connection & Architecture Telemetry -->
 	<CacheTelemetry
-		bind:endpoint
-		bind:cacheName
-		bind:token
+		{endpoint}
+		{cacheName}
+		{token}
 		{status}
 		{latencyMs}
+		{cacheInfo}
 		{errorMessage}
 		{isPrivateNotice}
+		{presets}
+		{publicKey}
+		specs={runtimeConfig.specs}
+		onEndpointChange={handleEndpointChange}
+		onCacheNameChange={handleCacheNameChange}
+		onTokenChange={handleTokenChange}
+		onSelectPreset={handleSelectPreset}
 		onTestConnection={testConnection}
 	/>
 
-	<!-- Store Path & Closure Inspector -->
 	<NarinfoInspector
+		bind:this={inspectorRef}
 		narInfo={activeNarInfo}
 		isLoading={isInspecting}
 		error={inspectorError}
 		source={inspectionSource}
-		endpoint={inspectedEndpoint || endpoint}
-		cacheName={inspectedCacheName !== '' ? inspectedCacheName : cacheName}
-		onSearch={inspectPath}
+		endpoint={inspectedTarget ? inspectedTarget.endpoint : endpoint}
+		cacheName={inspectedTarget ? inspectedTarget.cacheName : cacheName}
+		storeDir={cacheInfo?.storeDir}
+		{samples}
+		{historyTrail}
+		onSearch={(path) => void inspectPath(path)}
 	/>
 
-	<!-- Client Setup & Quickstart Snippets -->
-	<ClientConfig {endpoint} {cacheName} />
+	<ClientConfig
+		{endpoint}
+		{cacheName}
+		{publicKey}
+		bind:activeTab={configTab}
+	/>
 </main>
 
-<footer class="border-t border-border-subtle bg-bg-surface/50 py-6 mt-12">
-	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-text-muted">
+<footer class="border-t border-line bg-bg/50 py-6 mt-12">
+	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted">
 		<div class="flex items-center gap-2">
-			<span>📦</span>
-			<span>Powered by <strong>Attic</strong> & <strong>@kleinbem/web-config</strong></span>
+			<span aria-hidden="true">📦</span>
+			<span>Powered by <strong>Attic</strong></span>
 		</div>
-		<div>
-			<span>kleinbem fleet infrastructure</span>
-		</div>
+		{#if runtimeConfig.footer}
+			<div>
+				<span>{runtimeConfig.footer}</span>
+			</div>
+		{/if}
 	</div>
 </footer>
+
+{#if paletteClipboard.copiedId || paletteClipboard.failedId}
+	<div
+		role="status"
+		aria-live="polite"
+		class="fixed bottom-4 right-4 z-40 rounded-lg border px-3.5 py-2 text-xs font-medium shadow-lg backdrop-blur-md {paletteClipboard.failedId
+			? 'border-status-danger/40 bg-status-danger/15 text-status-danger'
+			: 'border-status-success/40 bg-status-success/15 text-status-success'}"
+	>
+		{#if paletteClipboard.failedId}
+			Clipboard copy failed for {paletteClipboard.failedId}
+		{:else}
+			✓ Copied {paletteClipboard.copiedId} to clipboard
+		{/if}
+	</div>
+{/if}
+
+<CommandPalette
+	bind:open={commandPaletteOpen}
+	items={commandItems}
+	placeholder="Search actions, presets, or configuration..."
+/>

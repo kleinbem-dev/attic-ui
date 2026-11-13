@@ -1,26 +1,28 @@
 # AGENTS.md
 
-Guidance for AI assistants working on Attic UI.
+Guidance for AI assistants working on `attic-ui`.
 
-## What Attic UI is
+## Architecture
 
-Attic UI is the lightweight, next-generation web interface and store inspector for Attic, the multi-tenant Nix binary cache server powering the kleinbem fleet.
-It replaces the plain text/ASCII welcome screen with a modern, high-tech SvelteKit application styled with `@kleinbem/web-config` and Tailwind CSS 4.
+`attic-ui` is a pure static Single-Page Application (`ssr = false`, `prerender = true` via `@sveltejs/adapter-static`) for inspecting Attic and Nix HTTP binary caches:
 
-## Key Capabilities
+- `src/lib/attic-api.ts`: Pure protocol parser, URL/scheme sanitizer, origin-isolated token storage (`attic-tokens`), snippet generator, and optional `./config.json` loader. Keep free of Svelte runtime imports so `node --test` runs directly against `.ts` sources.
+- `src/lib/clipboard.svelte.ts`: Shared Svelte 5 rune helper for clipboard copy feedback and timer cleanup.
+- `src/lib/components/`: Presentational Svelte 5 components (`Header`, `CacheTelemetry`, `NarinfoInspector`, `ClientConfig`) using explicit callback props and zero `$effect` state loops.
+- `src/routes/+page.svelte`: Top-level state coordinator with `AbortController` request cancellation and `CommandPalette` actions.
+- `package.nix`: Upstream-ready `nixpkgs` derivation (`pkgs/by-name/at/attic-ui/package.nix`) installing static SPA files directly to `$out/`.
 
-- **Fleet Design System**: Uses `@kleinbem/web-config` themes (dark/light, system preference, zero-FOUC).
-- **Live Cache Health & Metrics**: Displays live status of Attic instances (public endpoint, NetBird mesh, or local host) via `<StatusDot />`.
-- **Nix Store Inspector**: Queries and parses `.narinfo` records, visualizing store path dependencies, derivers, NAR sizes, and cryptographic signatures.
-- **Client Configuration Assistant**: One-click copy for `nix.conf` (`substituters`, `trusted-public-keys`) and `attic` CLI authentication.
-- **Command Palette (`⌘K` / `/`)**: Fast keyboard-driven navigation across caches, inspector, and actions.
-- **Zero Runtime Overhead**: Packaged via Nix (`buildNpmPackage`) as a pure static SPA served directly by Caddy or static file hosts.
+## Invariants
 
-## Development
+- **Fleet-agnostic defaults**: Never hardcode private IPs, internal hostnames, or signing keys in `src/`. Operator-specific defaults belong in runtime `./config.json`.
+- **Token & URL safety**: Bearer tokens must never be sent over non-loopback `http://` or carried across origins when `endpoint` changes. All generated `href` URLs must pass `http:` / `https:` allowlisting.
+- **Nix purity**: Keep `package.nix` free of IFD (`importNpmLock`) and eval-time `fetchGit`. Update `npmDepsHash` with `prefetch-npm-deps package-lock.json` whenever dependencies change.
+
+## Verification
 
 ```bash
-just dev      # Run Vite dev server
-just check    # Run svelte-check and TypeScript checks
-just build    # Build static production assets
-just preview  # Preview production build
+just test           # Unit, security, and mock HTTP integration suite (node --test)
+just check          # svelte-kit sync && svelte-check (0 errors, 0 warnings)
+just build          # Production static bundle
+nix flake check     # Full sandboxed build + tests + smoke check + nixfmt/deadnix/statix
 ```

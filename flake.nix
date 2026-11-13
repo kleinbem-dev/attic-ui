@@ -1,48 +1,108 @@
 {
-  description = "Next-generation web interface and store inspector for Attic Nix binary cache";
+  description = "Web interface and closure inspector for Attic Nix binary caches";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs =
+    { self, nixpkgs }:
+    let
+      inherit (nixpkgs) lib;
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forAllSystems = lib.genAttrs systems;
+      localSrc = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./LICENSE
+          ./package.json
+          ./package-lock.json
+          ./src
+          ./test
+          ./tsconfig.json
+          ./vite.config.ts
+        ];
+      };
+    in
     {
-      nixpkgs,
-      flake-utils,
-      ...
-    }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
-      in
-      {
-        formatter = pkgs.nixfmt;
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 
-        packages.default = pkgs.buildNpmPackage {
-          pname = "attic-ui";
-          version = "0.1.0";
-          src = ./.;
-          npmDeps = pkgs.importNpmLock { npmRoot = ./.; };
-          npmConfigHook = pkgs.importNpmLock.npmConfigHook;
-          installPhase = ''
-            mkdir -p $out
-            cp -r build/* $out/
-          '';
-          meta = with pkgs.lib; {
-            description = "Web interface and store inspector for Attic Nix binary cache";
-            homepage = "https://github.com/kleinbem-dev/attic-ui";
-            license = licenses.mit;
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          attic-ui = (pkgs.callPackage ./package.nix { }).overrideAttrs (prevAttrs: {
+            src = localSrc;
+            npmDeps = pkgs.fetchNpmDeps {
+              pname = "${prevAttrs.pname}-npm-deps";
+              inherit (prevAttrs) version;
+              src = localSrc;
+              hash = prevAttrs.npmDepsHash;
+            };
+          });
+        in
+        {
+          inherit attic-ui;
+          default = attic-ui;
+        }
+      );
+
+      checks = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          pkg = self.packages.${system}.default;
+          nixSrc = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              ./flake.nix
+              ./package.nix
+            ];
           };
-        };
+        in
+        {
+          default = pkg;
+          inherit (pkg.passthru.tests) smoke;
+          nix-lint =
+            pkgs.runCommand "attic-ui-nix-lint"
+              {
+                nativeBuildInputs = [
+                  pkgs.nixfmt
+                  pkgs.deadnix
+                  pkgs.statix
+                ];
+              }
+              ''
+                nixfmt --check "${nixSrc}/flake.nix" "${nixSrc}/package.nix"
+                deadnix --fail "${nixSrc}"
+                statix check "${nixSrc}"
+                touch "$out"
+              '';
+        }
+      );
 
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            nodejs_22
-            just
-          ];
-        };
-      }
-    );
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              nodejs
+              just
+              nixfmt
+              deadnix
+              statix
+              prefetch-npm-deps
+            ];
+          };
+        }
+      );
+    };
 }

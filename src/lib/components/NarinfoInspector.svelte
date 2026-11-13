@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
-	import { formatBytes, extractStoreHash, getNarinfoUrl, getNarDownloadUrl } from '../attic-api';
-	import type { NarInfo } from '../types';
+	import { onDestroy } from 'svelte';
+	import { formatBytes, getNarDownloadUrl, getNarinfoUrl } from '#lib/attic-api';
+	import { ClipboardFeedback } from '#lib/clipboard.svelte';
+	import type { BreadcrumbItem, NarInfo, SamplePath } from '#lib/types';
 
 	let {
 		narInfo = null,
@@ -10,6 +11,9 @@
 		source = '',
 		endpoint = '',
 		cacheName = '',
+		storeDir = '/nix/store',
+		samples = [],
+		historyTrail = [],
 		onSearch
 	}: {
 		narInfo?: NarInfo | null;
@@ -18,158 +22,120 @@
 		source?: string;
 		endpoint?: string;
 		cacheName?: string;
+		storeDir?: string;
+		samples?: SamplePath[];
+		historyTrail?: BreadcrumbItem[];
 		onSearch: (hashOrPath: string) => void;
 	} = $props();
 
 	let inputVal = $state('');
+	let searchInputEl = $state<HTMLInputElement | null>(null);
 	let activeTab = $state<'parsed' | 'raw'>('parsed');
-	let copiedPath = $state(false);
-	let copiedRaw = $state(false);
 
-	interface BreadcrumbItem {
-		hash: string;
-		label: string;
-	}
-	let historyTrail = $state<BreadcrumbItem[]>([]);
+	const clipboard = new ClipboardFeedback();
+	onDestroy(() => clipboard.destroy());
 
-	// Update breadcrumb trail whenever an inspected narInfo loads
-	$effect(() => {
-		const currentPath = narInfo?.storePath;
-		if (!currentPath) return;
-		const hash = extractStoreHash(currentPath);
-		if (!hash) return;
-		const rawName = currentPath.split('/nix/store/')[1] || '';
-		const name = rawName.replace(/^[0-9a-df-np-sv-z]{32}-/, '') || hash.slice(0, 8);
-
-		untrack(() => {
-			const existingIdx = historyTrail.findIndex((item) => item.hash === hash);
-			if (existingIdx >= 0) {
-				if (existingIdx !== historyTrail.length - 1) {
-					historyTrail = historyTrail.slice(0, existingIdx + 1);
-				}
-			} else {
-				historyTrail = [...historyTrail.slice(-11), { hash, label: name }];
-			}
-		});
-	});
-
-	function goBack() {
-		if (historyTrail.length > 1) {
-			const target = historyTrail[historyTrail.length - 2];
-			inputVal = target.hash;
-			onSearch(target.hash);
-		}
-	}
-
-	function goToBreadcrumb(index: number) {
-		const target = historyTrail[index];
-		if (target) {
-			inputVal = target.hash;
-			onSearch(target.hash);
-		}
+	export function focusSearch(): void {
+		searchInputEl?.focus();
+		searchInputEl?.select();
 	}
 
 	const narinfoUrl = $derived(
 		narInfo ? getNarinfoUrl(endpoint, cacheName, narInfo.storePath) : ''
 	);
 	const narDownloadUrl = $derived(
-		narInfo && narInfo.url ? getNarDownloadUrl(endpoint, cacheName, narInfo.url) : ''
+		narInfo?.url ? getNarDownloadUrl(endpoint, cacheName, narInfo.url) : ''
 	);
 
-	const fleetSamples = [
-		{
-			name: 'core-pi (system)',
-			hash: '3kgaz3f1bwvyaa57lch9gyks29cmsjnx',
-			desc: 'Latest Raspberry Pi NixOS toplevel'
-		},
-		{
-			name: 'orin-nano (system)',
-			hash: '6986iw0ik1q2l79vkgzd9zq50614335b',
-			desc: 'NVIDIA Jetson Orin Nano toplevel'
-		},
-		{
-			name: 'nixos-nvme (workstation)',
-			hash: 'fbsb1w8y4xxh7pjymjfbwnpxqar0mixc',
-			desc: 'Workstation NixOS toplevel'
-		},
-		{
-			name: 'attic-ui (spa)',
-			hash: '5p0mxq29mi845j1f1s9hfv7lpabiynb3',
-			desc: 'Attic web dashboard closure'
+	const groupedSamples = $derived.by(() => {
+		const groups = new Map<string, SamplePath[]>();
+		for (const sample of samples) {
+			const group = sample.group || 'Samples';
+			const list = groups.get(group);
+			if (list) list.push(sample);
+			else groups.set(group, [sample]);
 		}
-	];
+		return Array.from(groups.entries());
+	});
 
-	const upstreamSamples = [
-		{
-			name: 'jq-1.8.2',
-			hash: '9l0j15jg8634hkb6d4c9y95mpxl0nhrd'
-		},
-		{
-			name: 'curl-8.22.0',
-			hash: '5lpg7j8y8lf8c4zv318yi4rmgyn5yhip'
-		},
-		{
-			name: 'glibc-2.44',
-			hash: 'pqyiidz5mi73wv5f91d48s9plcqyj5bz'
+	function formatStoreEntry(entry: string): string {
+		const cleanStore = storeDir.replace(/\/+$/, '') || '/nix/store';
+		return entry.startsWith('/') ? entry : `${cleanStore}/${entry}`;
+	}
+
+	function selectHash(hashOrRef: string) {
+		inputVal = hashOrRef;
+		onSearch(hashOrRef);
+	}
+
+	function goBack() {
+		if (historyTrail.length > 1) {
+			selectHash(historyTrail[historyTrail.length - 2].hash);
 		}
-	];
-
-	function selectSample(hash: string) {
-		inputVal = hash;
-		onSearch(hash);
 	}
 
 	function handleSubmit(e: SubmitEvent) {
 		e.preventDefault();
-		if (!inputVal.trim()) return;
-		onSearch(inputVal.trim());
+		const trimmed = inputVal.trim();
+		if (!trimmed) return;
+		onSearch(trimmed);
 	}
 
-	function handleInspectReference(ref: string) {
-		inputVal = ref;
-		onSearch(ref);
-	}
+	const detailTabs: { id: 'parsed' | 'raw'; label: string }[] = [
+		{ id: 'parsed', label: 'Parsed Details' },
+		{ id: 'raw', label: 'Raw .narinfo' }
+	];
 
-	async function copyToClipboard(text: string, type: 'path' | 'raw') {
-		try {
-			await navigator.clipboard.writeText(text);
-			if (type === 'path') {
-				copiedPath = true;
-				setTimeout(() => (copiedPath = false), 2000);
-			} else {
-				copiedRaw = true;
-				setTimeout(() => (copiedRaw = false), 2000);
-			}
-		} catch (e) {}
+	function handleTabKeydown(e: KeyboardEvent & { currentTarget: HTMLElement }) {
+		const idx = detailTabs.findIndex((t) => t.id === activeTab);
+		let next = -1;
+		if (e.key === 'ArrowRight') next = (idx + 1) % detailTabs.length;
+		else if (e.key === 'ArrowLeft') next = (idx - 1 + detailTabs.length) % detailTabs.length;
+		else if (e.key === 'Home') next = 0;
+		else if (e.key === 'End') next = detailTabs.length - 1;
+		if (next < 0) return;
+		e.preventDefault();
+		activeTab = detailTabs[next].id;
+		e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
 	}
 </script>
 
-<div class="glass-panel rounded-2xl p-5 shadow-xs space-y-5">
-	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border-subtle pb-3">
+<section aria-labelledby="inspector-heading" class="glass-panel rounded-2xl p-5 shadow-xs space-y-5">
+	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-3">
 		<div class="flex items-center gap-2">
-			<span class="text-base">🔍</span>
-			<h2 class="text-sm font-semibold text-text-primary">Nix Store Path & Closure Inspector</h2>
+			<span aria-hidden="true" class="text-base">🔍</span>
+			<h2 id="inspector-heading" class="text-sm font-semibold text-heading">
+				Nix Store Path & Closure Inspector
+			</h2>
 		</div>
-		<div class="text-xs text-text-muted">
+		<div class="text-xs text-muted">
 			Inspect closure NAR metadata, dependencies, and signatures
 		</div>
 	</div>
 
-	<!-- Search Input Bar -->
 	<form onsubmit={handleSubmit} class="flex flex-col sm:flex-row gap-2">
 		<div class="relative flex-1">
+			<label for="store-path-input" class="sr-only">
+				Nix store path or 32-character hash
+			</label>
 			<input
+				id="store-path-input"
+				bind:this={searchInputEl}
 				type="text"
 				bind:value={inputVal}
+				spellcheck="false"
 				placeholder="Enter /nix/store/... path or 32-character hash"
-				class="w-full rounded-lg border border-border-subtle bg-bg-surface px-3.5 py-2.5 text-xs font-mono text-text-primary focus:border-brand focus:outline-hidden pr-8"
+				class="w-full rounded-lg border border-line bg-bg px-3.5 py-2.5 pr-8 text-xs font-mono text-heading focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 			/>
 			{#if inputVal}
 				<button
 					type="button"
-					onclick={() => (inputVal = '')}
-					class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary text-xs"
-					aria-label="Clear input"
+					onclick={() => {
+						inputVal = '';
+						searchInputEl?.focus();
+					}}
+					class="absolute right-2 top-1/2 -translate-y-1/2 rounded px-1.5 py-0.5 text-muted hover:text-heading text-xs cursor-pointer focus-visible:outline-2 focus-visible:outline-accent"
+					aria-label="Clear search input"
 				>
 					✕
 				</button>
@@ -178,10 +144,10 @@
 		<button
 			type="submit"
 			disabled={isLoading || !inputVal.trim()}
-			class="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-xs font-medium text-brand-contrast hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer whitespace-nowrap"
+			class="inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-xs font-medium text-accent-fg hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
 		>
 			{#if isLoading}
-				<span class="animate-spin text-xs">⟳</span>
+				<span aria-hidden="true" class="animate-spin text-xs">⟳</span>
 				<span>Querying...</span>
 			{:else}
 				<span>Inspect Path</span>
@@ -189,99 +155,101 @@
 		</button>
 	</form>
 
-	<!-- Sample Chips -->
-	<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-		<div class="flex items-center gap-1.5 flex-wrap">
-			<span class="text-text-muted font-medium">Fleet:</span>
-			{#each fleetSamples as sample}
-				<button
-					type="button"
-					disabled={isLoading}
-					onclick={() => selectSample(sample.hash)}
-					class="rounded-md border border-brand/30 bg-brand/5 hover:bg-brand/10 px-2 py-0.5 text-[11px] font-mono text-brand disabled:opacity-50 transition-colors cursor-pointer"
-					title="{sample.name} - {sample.desc}"
-				>
-					⚡ {sample.name}
-				</button>
+	{#if groupedSamples.length > 0}
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+			{#each groupedSamples as [group, items] (group)}
+				<div class="flex items-center gap-1.5 flex-wrap">
+					<span class="text-muted font-medium">{group}:</span>
+					{#each items as sample (sample.hash)}
+						<button
+							type="button"
+							disabled={isLoading}
+							onclick={() => selectHash(sample.hash)}
+							class="rounded-md border border-line bg-bg px-2 py-0.5 text-[11px] font-mono text-fg hover:text-accent hover:border-accent/40 disabled:opacity-50 transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+							title={sample.description ? `${sample.name} — ${sample.description}` : sample.name}
+						>
+							{sample.name}
+						</button>
+					{/each}
+				</div>
 			{/each}
 		</div>
-		<div class="flex items-center gap-1.5 flex-wrap">
-			<span class="text-text-muted font-medium">Upstream:</span>
-			{#each upstreamSamples as sample}
-				<button
-					type="button"
-					disabled={isLoading}
-					onclick={() => selectSample(sample.hash)}
-					class="rounded-md border border-border-subtle bg-bg-surface px-2 py-0.5 text-[11px] font-mono text-text-secondary hover:text-brand hover:border-brand/40 disabled:opacity-50 transition-colors cursor-pointer"
-				>
-					{sample.name}
-				</button>
-			{/each}
-		</div>
-	</div>
+	{/if}
 
-	<!-- Breadcrumb Trail & History -->
 	{#if historyTrail.length > 1}
-		<div class="flex items-center gap-1.5 text-xs text-text-muted overflow-x-auto py-1 border-t border-border-subtle/50 pt-2.5">
+		<nav aria-label="Inspected closure trail" class="flex items-center gap-1.5 text-xs text-muted overflow-x-auto py-1 border-t border-line/50 pt-2.5">
 			<button
 				type="button"
 				onclick={goBack}
-				class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-border-subtle bg-bg-surface hover:text-brand hover:border-brand/40 text-[11px] font-mono cursor-pointer shrink-0 transition-colors"
-				title="Navigate to previous closure"
+				class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-line bg-bg hover:text-accent hover:border-accent/40 text-[11px] font-mono cursor-pointer shrink-0 transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 			>
 				← Back
 			</button>
-			<span class="text-text-muted/60 text-[10px] shrink-0 font-medium uppercase tracking-wider">Trail:</span>
+			<span class="text-muted/60 text-[10px] shrink-0 font-medium uppercase tracking-wider">Trail:</span>
 			<div class="flex items-center gap-1 overflow-x-auto">
-				{#each historyTrail as item, i}
+				{#each historyTrail as item, i (item.hash)}
 					{#if i > 0}
-						<span class="text-text-muted/40 shrink-0">/</span>
+						<span aria-hidden="true" class="text-muted/40 shrink-0">/</span>
 					{/if}
 					<button
 						type="button"
-						onclick={() => goToBreadcrumb(i)}
-						class="truncate max-w-[150px] px-1.5 py-0.5 rounded transition-colors text-[11px] font-mono cursor-pointer shrink-0 {i === historyTrail.length - 1 ? 'font-semibold text-brand bg-brand/10 border border-brand/20' : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'}"
-						title="{item.label} ({item.hash})"
+						aria-current={i === historyTrail.length - 1 ? 'step' : undefined}
+						onclick={() => selectHash(item.hash)}
+						class="truncate max-w-[150px] px-1.5 py-0.5 rounded transition-colors text-[11px] font-mono cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent {i === historyTrail.length - 1
+							? 'font-semibold text-accent bg-accent/10 border border-accent/20'
+							: 'text-fg hover:text-heading hover:bg-surface'}"
+						title={`${item.label} (${item.hash})`}
 					>
 						{item.label}
 					</button>
 				{/each}
 			</div>
-		</div>
+		</nav>
 	{/if}
 
-	<!-- Error Message Display -->
 	{#if error}
-		<div class="rounded-lg bg-status-critical/10 border border-status-critical/20 p-3 text-xs text-status-critical flex items-center justify-between">
+		<div
+			role="alert"
+			class="rounded-lg bg-status-danger/10 border border-status-danger/20 p-3 text-xs text-status-danger flex items-center justify-between gap-2"
+		>
 			<div class="flex items-center gap-2">
-				<span>⚠️</span>
+				<span aria-hidden="true">⚠️</span>
 				<span>{error}</span>
 			</div>
-			<span class="text-[11px] font-mono text-text-muted">Check cache token or path hash</span>
+			<span class="text-[11px] font-mono text-muted shrink-0">Verify token or store hash</span>
 		</div>
 	{/if}
 
-	<!-- Results Panel -->
 	{#if narInfo}
 		<div class="space-y-4 pt-1">
-			<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border-subtle pb-2">
+			<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-line pb-2">
 				<div class="flex items-center gap-2 flex-wrap">
-					<button
-						type="button"
-						onclick={() => (activeTab = 'parsed')}
-						class="text-xs font-semibold px-2 py-1 rounded-md transition-colors cursor-pointer {activeTab === 'parsed' ? 'bg-brand/10 text-brand' : 'text-text-muted hover:text-text-primary'}"
+					<div
+						role="tablist"
+						tabindex="-1"
+						aria-label="Narinfo view mode"
+						onkeydown={handleTabKeydown}
+						class="flex items-center gap-1"
 					>
-						Parsed Details
-					</button>
-					<button
-						type="button"
-						onclick={() => (activeTab = 'raw')}
-						class="text-xs font-semibold px-2 py-1 rounded-md transition-colors cursor-pointer {activeTab === 'raw' ? 'bg-brand/10 text-brand' : 'text-text-muted hover:text-text-primary'}"
-					>
-						Raw .narinfo
-					</button>
+						{#each detailTabs as tab (tab.id)}
+							{@const selected = activeTab === tab.id}
+							<button
+								type="button"
+								id={`nar-tab-${tab.id}`}
+								role="tab"
+								aria-selected={selected}
+								tabindex={selected ? 0 : -1}
+								onclick={() => (activeTab = tab.id)}
+								class="text-xs font-semibold px-2 py-1 rounded-md transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent {selected
+									? 'bg-accent/10 text-accent'
+									: 'text-muted hover:text-heading'}"
+							>
+								{tab.label}
+							</button>
+						{/each}
+					</div>
 					{#if source}
-						<span class="rounded bg-brand/10 border border-brand/20 px-2 py-0.5 text-[10px] font-mono text-brand font-medium">
+						<span class="rounded bg-accent/10 border border-accent/20 px-2 py-0.5 text-[10px] font-mono text-accent font-medium">
 							{source}
 						</span>
 					{/if}
@@ -293,8 +261,7 @@
 							href={narinfoUrl}
 							target="_blank"
 							rel="noopener noreferrer"
-							class="text-text-muted hover:text-brand flex items-center gap-1 transition-colors"
-							title="Open raw .narinfo HTTP URL in a new tab"
+							class="text-muted hover:text-accent flex items-center gap-1 transition-colors rounded px-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 						>
 							<span>View .narinfo ↗</span>
 						</a>
@@ -304,114 +271,122 @@
 							href={narDownloadUrl}
 							target="_blank"
 							rel="noopener noreferrer"
-							class="text-text-muted hover:text-brand flex items-center gap-1 transition-colors"
-							title="Download compressed NAR archive"
+							class="text-muted hover:text-accent flex items-center gap-1 transition-colors rounded px-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 						>
 							<span>Download NAR ⤓</span>
 						</a>
 					{/if}
 					<button
 						type="button"
-						onclick={() => copyToClipboard(narInfo.storePath, 'path')}
-						class="text-text-muted hover:text-text-primary flex items-center gap-1 cursor-pointer transition-colors"
+						onclick={() => clipboard.copy(narInfo.storePath, 'path')}
+						class="text-muted hover:text-heading flex items-center gap-1 cursor-pointer transition-colors rounded px-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 					>
-						<span>{copiedPath ? '✓ Copied' : 'Copy Store Path'}</span>
+						<span>
+							{clipboard.copiedId === 'path'
+								? '✓ Copied'
+								: clipboard.failedId === 'path'
+									? 'Copy failed'
+									: 'Copy Store Path'}
+						</span>
 					</button>
 				</div>
 			</div>
 
 			{#if activeTab === 'parsed'}
-				<div class="space-y-4 text-xs">
-					<!-- Store Path Header Card -->
-					<div class="rounded-xl border border-border-subtle bg-bg-surface p-3.5 space-y-2">
-						<div class="text-[11px] uppercase tracking-wider font-medium text-text-muted">
+				<div role="tabpanel" aria-labelledby="nar-tab-parsed" class="space-y-4 text-xs">
+					<div class="rounded-xl border border-line bg-bg p-3.5 space-y-2">
+						<div class="text-[11px] uppercase tracking-wider font-medium text-muted">
 							Store Path
 						</div>
-						<div class="font-mono text-xs text-text-primary break-all select-all font-semibold">
+						<div class="font-mono text-xs text-heading break-all select-all font-semibold">
 							{narInfo.storePath}
 						</div>
 					</div>
 
-					<!-- Metrics Grid -->
 					<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-						<div class="rounded-xl border border-border-subtle bg-bg-surface p-3">
-							<div class="text-[11px] text-text-muted mb-1">Uncompressed NAR</div>
-							<div class="text-sm font-semibold font-mono text-text-primary">
+						<div class="rounded-xl border border-line bg-bg p-3">
+							<div class="text-[11px] text-muted mb-1">Uncompressed NAR</div>
+							<div class="text-sm font-semibold font-mono text-heading">
 								{formatBytes(narInfo.narSize)}
 							</div>
 						</div>
 
-						<div class="rounded-xl border border-border-subtle bg-bg-surface p-3">
-							<div class="text-[11px] text-text-muted mb-1">Compressed File</div>
-							<div class="text-sm font-semibold font-mono text-text-primary">
+						<div class="rounded-xl border border-line bg-bg p-3">
+							<div class="text-[11px] text-muted mb-1">Compressed File</div>
+							<div class="text-sm font-semibold font-mono text-heading">
 								{formatBytes(narInfo.fileSize)}
 							</div>
 						</div>
 
-						<div class="rounded-xl border border-border-subtle bg-bg-surface p-3">
-							<div class="text-[11px] text-text-muted mb-1">Compression</div>
+						<div class="rounded-xl border border-line bg-bg p-3">
+							<div class="text-[11px] text-muted mb-1">Compression</div>
 							<div class="flex items-center gap-1.5">
-								<span class="rounded bg-brand/10 px-1.5 py-0.5 font-mono text-xs text-brand font-semibold">
+								<span class="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-xs text-accent font-semibold">
 									{narInfo.compression}
 								</span>
 								{#if narInfo.narSize > 0 && narInfo.fileSize > 0}
-									<span class="text-[10px] text-text-muted">
+									<span class="text-[10px] text-muted">
 										({Math.round((narInfo.fileSize / narInfo.narSize) * 100)}%)
 									</span>
 								{/if}
 							</div>
 						</div>
 
-						<div class="rounded-xl border border-border-subtle bg-bg-surface p-3">
-							<div class="text-[11px] text-text-muted mb-1">References</div>
-							<div class="text-sm font-semibold font-mono text-text-primary">
+						<div class="rounded-xl border border-line bg-bg p-3">
+							<div class="text-[11px] text-muted mb-1">References</div>
+							<div class="text-sm font-semibold font-mono text-heading">
 								{narInfo.references.length} closure deps
 							</div>
 						</div>
 					</div>
 
-					<!-- Hashes & Deriver -->
-					<div class="rounded-xl border border-border-subtle bg-bg-surface p-3.5 space-y-2.5 font-mono text-[11px]">
+					<div class="rounded-xl border border-line bg-bg p-3.5 space-y-2.5 font-mono text-[11px]">
 						<div>
-							<span class="text-text-muted block text-[10px] uppercase tracking-wider font-sans">NarHash</span>
-							<span class="text-text-secondary break-all">{narInfo.narHash || '—'}</span>
+							<span class="text-muted block text-[10px] uppercase tracking-wider font-sans">NarHash</span>
+							<span class="text-fg break-all">{narInfo.narHash || '—'}</span>
 						</div>
 						<div>
-							<span class="text-text-muted block text-[10px] uppercase tracking-wider font-sans">FileHash</span>
-							<span class="text-text-secondary break-all">{narInfo.fileHash || '—'}</span>
+							<span class="text-muted block text-[10px] uppercase tracking-wider font-sans">FileHash</span>
+							<span class="text-fg break-all">{narInfo.fileHash || '—'}</span>
 						</div>
+						{#if narInfo.ca}
+							<div>
+								<span class="text-muted block text-[10px] uppercase tracking-wider font-sans">Content Address (CA)</span>
+								<span class="text-fg break-all">{narInfo.ca}</span>
+							</div>
+						{/if}
 						{#if narInfo.deriver}
 							<div>
-								<span class="text-text-muted block text-[10px] uppercase tracking-wider font-sans">Deriver (.drv)</span>
-								<span class="text-brand break-all">/nix/store/{narInfo.deriver}</span>
+								<span class="text-muted block text-[10px] uppercase tracking-wider font-sans">Deriver (.drv)</span>
+								<span class="text-accent break-all">{formatStoreEntry(narInfo.deriver)}</span>
 							</div>
 						{/if}
 						{#if narInfo.sig && narInfo.sig.length > 0}
 							<div>
-								<span class="text-text-muted block text-[10px] uppercase tracking-wider font-sans">Signatures</span>
-								{#each narInfo.sig as s}
-									<div class="text-text-secondary break-all">{s}</div>
+								<span class="text-muted block text-[10px] uppercase tracking-wider font-sans">Signatures</span>
+								{#each narInfo.sig as sig, i (`${i}:${sig}`)}
+									<div class="text-fg break-all">{sig}</div>
 								{/each}
 							</div>
 						{/if}
 					</div>
 
-					<!-- References List -->
 					{#if narInfo.references.length > 0}
 						<div class="space-y-2">
-							<div class="flex items-center justify-between text-xs font-semibold text-text-primary">
+							<div class="flex items-center justify-between text-xs font-semibold text-heading">
 								<span>Closure References ({narInfo.references.length})</span>
-								<span class="text-[10px] font-normal text-text-muted">Click any dependency to inspect</span>
+								<span class="text-[10px] font-normal text-muted">Select any dependency to inspect</span>
 							</div>
-							<div class="max-h-48 overflow-y-auto rounded-xl border border-border-subtle bg-bg-surface p-2 divide-y divide-border-subtle font-mono text-[11px]">
-								{#each narInfo.references as ref}
+							<div class="max-h-48 overflow-y-auto rounded-xl border border-line bg-bg p-2 divide-y divide-line font-mono text-[11px]">
+								{#each narInfo.references as ref, i (`${i}:${ref}`)}
+									{@const fullRef = formatStoreEntry(ref)}
 									<button
 										type="button"
-										onclick={() => handleInspectReference(ref)}
-										class="w-full text-left py-1.5 px-2 hover:bg-bg-elevated text-text-secondary hover:text-brand transition-colors rounded cursor-pointer truncate block"
-										title="Inspect /nix/store/{ref}"
+										onclick={() => selectHash(ref)}
+										class="w-full text-left py-1.5 px-2 hover:bg-surface text-fg hover:text-accent transition-colors rounded cursor-pointer truncate block focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+										title={`Inspect ${fullRef}`}
 									>
-										/nix/store/{ref}
+										{fullRef}
 									</button>
 								{/each}
 							</div>
@@ -419,54 +394,29 @@
 					{/if}
 				</div>
 			{:else}
-				<!-- Raw .narinfo View -->
-				<div class="relative">
+				<div role="tabpanel" aria-labelledby="nar-tab-raw" class="relative">
 					<button
 						type="button"
-						onclick={() => copyToClipboard(narInfo.raw, 'raw')}
-						class="absolute top-2.5 right-2.5 rounded bg-bg-surface/80 px-2 py-1 text-[10px] font-mono text-text-secondary hover:text-text-primary border border-border-subtle cursor-pointer"
+						onclick={() => clipboard.copy(narInfo.raw, 'raw')}
+						class="absolute top-2.5 right-2.5 rounded bg-bg/90 px-2 py-1 text-[10px] font-mono text-fg hover:text-heading border border-line cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
 					>
-						{copiedRaw ? '✓ Copied' : 'Copy'}
+						{clipboard.copiedId === 'raw'
+							? '✓ Copied'
+							: clipboard.failedId === 'raw'
+								? 'Copy failed'
+								: 'Copy'}
 					</button>
-					<pre class="rounded-xl border border-border-subtle bg-bg-surface p-4 font-mono text-xs text-text-secondary overflow-x-auto whitespace-pre leading-relaxed">{narInfo.raw}</pre>
+					<pre class="rounded-xl border border-line bg-bg p-4 pr-16 font-mono text-xs text-fg overflow-x-auto whitespace-pre leading-relaxed">{narInfo.raw}</pre>
 				</div>
 			{/if}
 		</div>
 	{:else if !isLoading}
-		<div class="rounded-xl border border-dashed border-border-subtle p-8 text-center text-xs text-text-muted space-y-3">
-			<div class="text-2xl">📦</div>
-			<div class="font-medium text-text-primary">No path selected</div>
-			<p class="max-w-md mx-auto text-text-muted">
-				Enter a Nix store path or hash above to query Attic's binary cache and inspect its closure metadata, references, and compression.
+		<div class="rounded-xl border border-dashed border-line p-8 text-center text-xs text-muted space-y-3">
+			<div aria-hidden="true" class="text-2xl">📦</div>
+			<div class="font-medium text-heading">No path selected</div>
+			<p class="max-w-md mx-auto text-muted">
+				Enter a Nix store path or 32-character hash above to query the binary cache and inspect its closure metadata, references, and signatures.
 			</p>
-			<div class="pt-2 flex flex-col sm:flex-row justify-center items-center gap-3">
-				<div class="flex items-center gap-1.5 flex-wrap justify-center">
-					<span class="text-text-muted text-[11px]">Fleet:</span>
-					{#each fleetSamples as sample}
-						<button
-							type="button"
-							disabled={isLoading}
-							onclick={() => selectSample(sample.hash)}
-							class="rounded-lg border border-brand/30 bg-brand/5 hover:bg-brand/10 px-2.5 py-1 text-xs font-mono text-brand disabled:opacity-50 transition-colors cursor-pointer"
-						>
-							⚡ {sample.name}
-						</button>
-					{/each}
-				</div>
-				<div class="flex items-center gap-1.5 flex-wrap justify-center">
-					<span class="text-text-muted text-[11px]">Upstream:</span>
-					{#each upstreamSamples as sample}
-						<button
-							type="button"
-							disabled={isLoading}
-							onclick={() => selectSample(sample.hash)}
-							class="rounded-lg border border-border-subtle bg-bg-surface px-2.5 py-1 text-xs font-mono text-text-secondary hover:text-brand hover:border-brand/50 disabled:opacity-50 transition-colors cursor-pointer"
-						>
-							{sample.name}
-						</button>
-					{/each}
-				</div>
-			</div>
 		</div>
 	{/if}
-</div>
+</section>

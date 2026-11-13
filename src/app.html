@@ -16,15 +16,15 @@
 				document.documentElement.classList.toggle('light', t === 'light');
 
 				const s = localStorage.getItem('fleet-font-size');
-				if (s && s !== 'normal') {
+				if (s === 'small' || s === 'large' || s === 'larger') {
 					document.documentElement.dataset.fontSize = s;
 					document.documentElement.classList.add('font-size-' + s);
 				}
-			} catch (e) {}
+			} catch {}
 		</script>
 		%sveltekit.head%
 	</head>
-	<body class="min-h-screen bg-bg-surface text-text-primary antialiased transition-colors selection:bg-brand/20" data-sveltekit-preload-data="hover">
+	<body class="min-h-screen bg-bg text-heading antialiased transition-colors selection:bg-accent/20" data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>
