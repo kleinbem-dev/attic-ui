@@ -22,26 +22,10 @@ export default defineConfig(({ mode }) => {
 		}
 	};
 
-	const base = defineWebConfig({
-		adapter: 'static',
-		adapterOptions: {
-			fallback: '200.html',
-			pages: 'build',
-			assets: 'build'
-		},
-		server: {
-			port: 4173,
-			host: true,
-			proxy
-		}
-	});
+	const serve = { port: 4173, host: true, proxy };
 
-	return {
-		...base,
-		preview: {
-			port: 4173,
-			host: true,
-			proxy
-		}
-	};
+	return defineWebConfig({
+		server: serve,
+		vite: { preview: serve }
+	});
 });
