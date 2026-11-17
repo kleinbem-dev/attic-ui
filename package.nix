@@ -17,7 +17,7 @@ buildNpmPackage (finalAttrs: {
     hash = "sha256-woIULw/zSGgHmh6hZ/s4q/4xcUColTskWosdUs0nzvg=";
   };
 
-  npmDepsHash = "sha256-yty7tFMnfDvRzyq72A6qXjmRYhqPHV/jn2dfkNj4CFg=";
+  npmDepsHash = "sha256-CAmfJS9WUJ0hJvjV1ISRTMOxJVUfbrSOnTRmqSZ3TX0=";
   # npm 11 creates _cacache/tmp when installing git dependencies from the offline cache.
   makeCacheWritable = true;
 
