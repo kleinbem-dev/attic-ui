@@ -4,8 +4,6 @@
 @import "@kleinbem/web-config/base.css";
 @import "@kleinbem/web-config/badges.css";
 
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
-
 .glass-panel {
 	background: color-mix(in srgb, var(--color-surface) 78%, transparent);
 	backdrop-filter: blur(12px);
