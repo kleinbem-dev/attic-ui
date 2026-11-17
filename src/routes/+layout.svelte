@@ -1,15 +1,7 @@
 <script lang="ts">
 	import '../app.css';
-	import { theme } from '@kleinbem/web-config/theme/state';
 
 	let { children } = $props();
-
-	$effect(() => {
-		const active = theme.current;
-		document.documentElement.dataset.theme = active;
-		document.documentElement.classList.toggle('dark', active === 'dark');
-		document.documentElement.classList.toggle('light', active === 'light');
-	});
 </script>
 
 <a

@@ -18,13 +18,13 @@ async function listFiles(dir: string): Promise<string[]> {
 }
 
 describe('Frontend static, security, and accessibility contracts', () => {
-	it('app.html declares lang, viewport, color-scheme, and strict theme/font-size bootstrap', async () => {
+	it('app.html declares lang, viewport, color-scheme, and the web-config init block', async () => {
 		const html = await readFile('src/app.html', 'utf8');
 		assert.match(html, /<html\s+lang="en"/);
 		assert.match(html, /name="viewport"/);
 		assert.match(html, /name="color-scheme"\s+content="dark light"/);
-		assert.match(html, /localStorage\.getItem\('fleet-theme'\)/);
-		assert.match(html, /s === 'small' \|\| s === 'large' \|\| s === 'larger'/);
+		// The bootstrap script itself is owned and verified by `web-config check`.
+		assert.match(html, /<!-- web-config:init /);
 		assert.match(html, /%sveltekit\.head%/);
 		assert.match(html, /%sveltekit\.body%/);
 	});
